@@ -10,6 +10,43 @@ import {
 
 export const GEMINI_STORAGE_KEY = 'vocab_gemini_api_key';
 export const CHAT_HISTORY_STORAGE_KEY = 'vocab_ai_chat_history';
+export const ACTIVE_MODEL_STORAGE_KEY = 'vocab_gemini_active_model';
+
+/**
+ * Candidate models listed by priority
+ */
+export const CANDIDATE_MODELS = [
+  'gemini-2.5-flash',
+  'gemini-2.0-flash',
+  'gemini-1.5-flash-latest',
+  'gemini-1.5-flash',
+];
+
+/**
+ * Get active Gemini model from localStorage
+ */
+export function getActiveModel() {
+  try {
+    return localStorage.getItem(ACTIVE_MODEL_STORAGE_KEY) || CANDIDATE_MODELS[0];
+  } catch {
+    return CANDIDATE_MODELS[0];
+  }
+}
+
+/**
+ * Save active Gemini model to localStorage
+ */
+export function setActiveModel(model) {
+  try {
+    if (model) {
+      localStorage.setItem(ACTIVE_MODEL_STORAGE_KEY, model.trim());
+    } else {
+      localStorage.removeItem(ACTIVE_MODEL_STORAGE_KEY);
+    }
+  } catch (e) {
+    console.error('Failed to save active model to localStorage:', e);
+  }
+}
 
 /**
  * Get stored Gemini API key from localStorage
@@ -31,6 +68,7 @@ export function saveApiKey(apiKey) {
       localStorage.setItem(GEMINI_STORAGE_KEY, apiKey.trim());
     } else {
       localStorage.removeItem(GEMINI_STORAGE_KEY);
+      localStorage.removeItem(ACTIVE_MODEL_STORAGE_KEY);
     }
   } catch (e) {
     console.error('Failed to save API key to localStorage:', e);
@@ -43,6 +81,7 @@ export function saveApiKey(apiKey) {
 export function removeApiKey() {
   try {
     localStorage.removeItem(GEMINI_STORAGE_KEY);
+    localStorage.removeItem(ACTIVE_MODEL_STORAGE_KEY);
   } catch (e) {
     console.error('Failed to remove API key:', e);
   }
@@ -91,8 +130,32 @@ export function removeStoredChatHistory() {
 }
 
 /**
- * Test the Gemini API key with a minimal prompt
- * Endpoint: gemini-1.5-flash
+ * Helper to test generateContent on a specific model
+ */
+async function testModelGenerateContent(cleanKey, model) {
+  const url = `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(model)}:generateContent?key=${encodeURIComponent(cleanKey)}`;
+  return fetch(url, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({
+      contents: [
+        {
+          role: 'user',
+          parts: [{ text: 'Hello' }],
+        },
+      ],
+    }),
+  });
+}
+
+/**
+ * Test the Gemini API key:
+ * 1. Queries the models list API to discover active models supporting generateContent.
+ * 2. Picks the best flash model and verifies it.
+ * 3. Falls back to testing CANDIDATE_MODELS in sequence if the list endpoint fails or is unsupported.
+ * 4. Saves the working model to localStorage and returns success.
  */
 export async function testApiKey(apiKey) {
   if (!apiKey || !apiKey.trim()) {
@@ -100,53 +163,148 @@ export async function testApiKey(apiKey) {
   }
 
   const cleanKey = apiKey.trim();
-  const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${encodeURIComponent(cleanKey)}`;
 
+  // Step 1: Try calling GET models endpoint to discover models enabled for this API key
   try {
-    const response = await fetch(url, {
-      method: 'POST',
+    const listUrl = `https://generativelanguage.googleapis.com/v1beta/models?key=${encodeURIComponent(cleanKey)}`;
+    const listRes = await fetch(listUrl, {
+      method: 'GET',
       headers: {
         'Content-Type': 'application/json',
       },
-      body: JSON.stringify({
-        contents: [
-          {
-            role: 'user',
-            parts: [{ text: 'Hello' }],
-          },
-        ],
-      }),
     });
 
-    if (!response.ok) {
-      const errorData = await response.json().catch(() => ({}));
-      const rawMsg = errorData?.error?.message || response.statusText;
+    if (listRes.ok) {
+      const data = await listRes.json();
+      const models = data?.models || [];
+      const supported = models.filter(
+        m => Array.isArray(m.supportedGenerationMethods) && m.supportedGenerationMethods.includes('generateContent')
+      );
+      const supportedNames = supported.map(m => (m.name || '').replace(/^models\//, ''));
 
-      if (response.status === 400 || rawMsg.toLowerCase().includes('api key') || rawMsg.toLowerCase().includes('not valid')) {
+      // Find the best flash model in order of CANDIDATE_MODELS priority
+      let bestModel = CANDIDATE_MODELS.find(candidate => supportedNames.includes(candidate));
+      if (!bestModel) {
+        bestModel = supportedNames.find(n => n.includes('flash') && !n.includes('embedding') && !n.includes('vision'));
+      }
+      if (!bestModel) {
+        bestModel = supportedNames.find(n => n.includes('flash'));
+      }
+      if (!bestModel) {
+        bestModel = supportedNames.find(n => !n.includes('embedding') && !n.includes('aqa'));
+      }
+
+      if (bestModel) {
+        // Quick verification of the chosen model
+        const testRes = await testModelGenerateContent(cleanKey, bestModel);
+        if (testRes.ok) {
+          const testData = await testRes.json().catch(() => ({}));
+          setActiveModel(bestModel);
+          return { success: true, model: bestModel, data: testData };
+        }
+      }
+    } else {
+      const errorData = await listRes.json().catch(() => ({}));
+      const rawMsg = errorData?.error?.message || listRes.statusText;
+
+      // Fail fast on universal auth / quota errors
+      if (
+        listRes.status === 400 ||
+        rawMsg.toLowerCase().includes('api key') ||
+        rawMsg.toLowerCase().includes('not valid')
+      ) {
         throw new Error('API Key không hợp lệ. Vui lòng kiểm tra lại key bạn lấy từ Google AI Studio.');
       }
-      if (response.status === 429 || rawMsg.toLowerCase().includes('quota') || rawMsg.toLowerCase().includes('resource_exhausted')) {
+      if (
+        listRes.status === 429 ||
+        rawMsg.toLowerCase().includes('quota') ||
+        rawMsg.toLowerCase().includes('resource_exhausted')
+      ) {
         throw new Error('API Key đã hết hạn mức (Quota exceeded) hoặc gửi yêu cầu quá nhanh. Vui lòng thử lại sau.');
       }
-      if (response.status === 403) {
+      if (listRes.status === 403) {
+        throw new Error('Không có quyền truy cập Gemini API (403 Forbidden). Hãy chắc chắn bạn đã kích hoạt API trên Google AI Studio.');
+      }
+    }
+  } catch (err) {
+    if (err.name === 'TypeError' && err.message.includes('fetch')) {
+      throw new Error('Không thể kết nối đến Google Gemini. Vui lòng kiểm tra lại đường truyền mạng internet.');
+    }
+    if (
+      err.message &&
+      (err.message.includes('API Key không hợp lệ') ||
+        err.message.includes('Quota') ||
+        err.message.includes('403'))
+    ) {
+      throw err;
+    }
+  }
+
+  // Step 2: Fallback - test candidates in sequence with a minimal generateContent prompt
+  let lastError = null;
+  for (const model of CANDIDATE_MODELS) {
+    try {
+      const testRes = await testModelGenerateContent(cleanKey, model);
+      if (testRes.ok) {
+        const testData = await testRes.json().catch(() => ({}));
+        setActiveModel(model);
+        return { success: true, model, data: testData };
+      }
+
+      const errorData = await testRes.json().catch(() => ({}));
+      const rawMsg = errorData?.error?.message || testRes.statusText;
+
+      if (
+        testRes.status === 400 ||
+        rawMsg.toLowerCase().includes('api key') ||
+        rawMsg.toLowerCase().includes('not valid')
+      ) {
+        throw new Error('API Key không hợp lệ. Vui lòng kiểm tra lại key bạn lấy từ Google AI Studio.');
+      }
+      if (
+        testRes.status === 429 ||
+        rawMsg.toLowerCase().includes('quota') ||
+        rawMsg.toLowerCase().includes('resource_exhausted')
+      ) {
+        throw new Error('API Key đã hết hạn mức (Quota exceeded) hoặc gửi yêu cầu quá nhanh. Vui lòng thử lại sau.');
+      }
+      if (testRes.status === 403) {
         throw new Error('Không có quyền truy cập Gemini API (403 Forbidden). Hãy chắc chắn bạn đã kích hoạt API trên Google AI Studio.');
       }
 
-      throw new Error(`Kết nối thất bại (${response.status}): ${rawMsg}`);
-    }
+      if (
+        testRes.status === 404 ||
+        rawMsg.toLowerCase().includes('not found') ||
+        rawMsg.toLowerCase().includes('is not supported for generatecontent')
+      ) {
+        console.warn(`[GeminiService] Model ${model} không khả dụng (404). Đang thử model tiếp theo...`);
+        lastError = new Error(`Model ${model} không tồn tại (404).`);
+        continue;
+      }
 
-    const data = await response.json();
-    return { success: true, data };
-  } catch (error) {
-    if (error.name === 'TypeError' && error.message.includes('fetch')) {
-      throw new Error('Không thể kết nối đến Google Gemini. Vui lòng kiểm tra lại đường truyền mạng internet.');
+      lastError = new Error(`Kết nối thất bại (${testRes.status}): ${rawMsg}`);
+    } catch (err) {
+      if (err.name === 'TypeError' && err.message.includes('fetch')) {
+        throw new Error('Không thể kết nối đến Google Gemini. Vui lòng kiểm tra lại đường truyền mạng internet.');
+      }
+      if (
+        err.message &&
+        (err.message.includes('API Key không hợp lệ') ||
+          err.message.includes('Quota') ||
+          err.message.includes('403'))
+      ) {
+        throw err;
+      }
+      lastError = err;
     }
-    throw error;
   }
+
+  throw lastError || new Error('Không tìm thấy model AI phù hợp trên tài khoản này (404). Vui lòng kiểm tra lại API Key.');
 }
 
 /**
- * Send chat conversation to Gemini API with IELTS tutor system prompt and current word context
+ * Send chat conversation to Gemini API with IELTS tutor system prompt and current word context.
+ * Automatically tries active model first, and gracefully falls back to candidate models if 404 is encountered.
  */
 export async function sendChatMessage(apiKey, messages, currentWord) {
   if (!apiKey || !apiKey.trim()) {
@@ -173,7 +331,6 @@ export async function sendChatMessage(apiKey, messages, currentWord) {
   }
 
   const cleanKey = apiKey.trim();
-  const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${encodeURIComponent(cleanKey)}`;
 
   // Extract current word info
   const wordText = typeof currentWord === 'string' ? currentWord : currentWord?.word;
@@ -247,47 +404,83 @@ ${PROJECT_KNOWLEDGE}${wordContext}`;
     },
   };
 
-  try {
-    const response = await fetch(url, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify(payload),
-    });
+  // Build candidate try list: active model first, then remaining candidates
+  const initialModel = getActiveModel() || CANDIDATE_MODELS[0];
+  const candidateQueue = [
+    initialModel,
+    ...CANDIDATE_MODELS.filter(m => m !== initialModel),
+  ];
 
-    if (!response.ok) {
-      const errorData = await response.json().catch(() => ({}));
-      const rawMsg = errorData?.error?.message || response.statusText;
+  let lastError = null;
 
-      if (response.status === 429 || rawMsg.toLowerCase().includes('quota') || rawMsg.toLowerCase().includes('resource_exhausted')) {
-        throw new Error('Bạn đã gửi yêu cầu quá nhanh hoặc hết quota miễn phí của Gemini API. Vui lòng chờ 1 phút rồi thử lại.');
+  for (let i = 0; i < candidateQueue.length; i++) {
+    const currentModel = candidateQueue[i];
+    const url = `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(currentModel)}:generateContent?key=${encodeURIComponent(cleanKey)}`;
+
+    try {
+      const response = await fetch(url, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify(payload),
+      });
+
+      if (!response.ok) {
+        const errorData = await response.json().catch(() => ({}));
+        const rawMsg = errorData?.error?.message || response.statusText;
+
+        // If 404 (model not found) or unsupported generateContent, switch smoothly to next candidate
+        if (
+          response.status === 404 ||
+          rawMsg.toLowerCase().includes('not found') ||
+          rawMsg.toLowerCase().includes('is not supported for generatecontent')
+        ) {
+          console.warn(`[GeminiService] Model ${currentModel} trả về 404 (${rawMsg}). Tự động chuyển model kế tiếp...`);
+          lastError = new Error(`Model ${currentModel} không tồn tại (404).`);
+          continue;
+        }
+
+        if (response.status === 429 || rawMsg.toLowerCase().includes('quota') || rawMsg.toLowerCase().includes('resource_exhausted')) {
+          throw new Error('Bạn đã gửi yêu cầu quá nhanh hoặc hết quota miễn phí của Gemini API. Vui lòng chờ 1 phút rồi thử lại.');
+        }
+        if (response.status === 400 && rawMsg.toLowerCase().includes('api key')) {
+          throw new Error('API Key không hợp lệ hoặc đã bị vô hiệu hóa. Vui lòng kiểm tra lại trong phần Cài đặt API Key.');
+        }
+
+        throw new Error(rawMsg || `Lỗi từ Gemini API (mã ${response.status})`);
       }
-      if (response.status === 400 && rawMsg.toLowerCase().includes('api key')) {
-        throw new Error('API Key không hợp lệ hoặc đã bị vô hiệu hóa. Vui lòng kiểm tra lại trong phần Cài đặt API Key.');
+
+      // Success! If fallback model succeeded, update active model in localStorage
+      if (currentModel !== initialModel) {
+        console.info(`[GeminiService] Đã tự động chuyển và kích hoạt model mới: ${currentModel}`);
+        setActiveModel(currentModel);
       }
 
-      throw new Error(rawMsg || `Lỗi từ Gemini API (mã ${response.status})`);
-    }
+      const data = await response.json();
+      const candidate = data.candidates?.[0];
+      const replyText = candidate?.content?.parts?.map(p => p.text).join('') || '';
 
-    const data = await response.json();
-    const candidate = data.candidates?.[0];
-    const replyText = candidate?.content?.parts?.map(p => p.text).join('') || '';
-
-    if (!replyText) {
-      if (candidate?.finishReason && candidate.finishReason !== 'STOP') {
-        throw new Error(`Phản hồi bị ngắt quãng do lý do: ${candidate.finishReason}`);
+      if (!replyText) {
+        if (candidate?.finishReason && candidate.finishReason !== 'STOP') {
+          throw new Error(`Phản hồi bị ngắt quãng do lý do: ${candidate.finishReason}`);
+        }
+        throw new Error('Không nhận được câu trả lời từ AI. Vui lòng thử lại.');
       }
-      throw new Error('Không nhận được câu trả lời từ AI. Vui lòng thử lại.');
-    }
 
-    // Sanitize AI output to guarantee no API keys or tokens are ever exposed
-    const sanitizedReply = sanitizeAiOutput(replyText, cleanKey);
-    return sanitizedReply;
-  } catch (error) {
-    if (error.name === 'TypeError' && error.message.includes('fetch')) {
-      throw new Error('Không thể kết nối internet. Vui lòng kiểm tra lại mạng.');
+      // Sanitize AI output to guarantee no API keys or tokens are ever exposed
+      const sanitizedReply = sanitizeAiOutput(replyText, cleanKey);
+      return sanitizedReply;
+    } catch (error) {
+      if (error.message && error.message.includes('(404)') && i < candidateQueue.length - 1) {
+        continue;
+      }
+      if (error.name === 'TypeError' && error.message.includes('fetch')) {
+        throw new Error('Không thể kết nối internet. Vui lòng kiểm tra lại mạng.');
+      }
+      throw error;
     }
-    throw error;
   }
+
+  throw lastError || new Error('Không tìm thấy model AI phù hợp (404). Vui lòng thử lại với API Key khác.');
 }

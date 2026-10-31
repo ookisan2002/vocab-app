@@ -2,6 +2,7 @@ import { useState, useEffect, useRef } from 'react';
 import { useStore } from '../store/useStore';
 import {
   getStoredApiKey,
+  getActiveModel,
   testApiKey,
   sendChatMessage,
 } from '../services/geminiService';
@@ -243,15 +244,16 @@ export default function AiTutorModal({ currentWord }) {
 
     setIsTestingKey(true);
     try {
-      await testApiKey(inputKey);
+      const testRes = await testApiKey(inputKey);
       const cleanKey = inputKey.trim();
       setApiKey(cleanKey);
       setGeminiApiKey(cleanKey);
-      setKeySuccess('Kết nối thành công! Đang chuyển vào phòng học...');
+      const activeModelName = testRes?.model || getActiveModel() || 'Gemini Flash';
+      setKeySuccess(`Kết nối thành công (${activeModelName})! Đang chuyển vào phòng học...`);
       setTimeout(() => {
         setIsConfiguringKey(false);
         setKeySuccess('');
-      }, 700);
+      }, 900);
     } catch (err) {
       setKeyError(err.message || 'Không thể kết nối với API Key này. Vui lòng kiểm tra lại.');
     } finally {
@@ -461,7 +463,7 @@ export default function AiTutorModal({ currentWord }) {
                 <div className="ai-config-icon">🔑</div>
                 <h4>Kết nối Google Gemini API</h4>
                 <p className="ai-config-desc">
-                  IELTS AI Tutor sử dụng mô hình <strong>Gemini 1.5 Flash</strong> siêu tốc và hoàn toàn <strong>miễn phí</strong> từ Google.
+                  IELTS AI Tutor tự động kết nối mô hình <strong>Gemini Flash</strong> ({getActiveModel()}) siêu tốc và hoàn toàn <strong>miễn phí</strong> từ Google.
                 </p>
 
                 {user && (apiKey || geminiApiKey) && (
