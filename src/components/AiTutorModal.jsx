@@ -322,7 +322,7 @@ export default function AiTutorModal({ currentWord }) {
     target.style.height = 'auto';
     const newHeight = Math.min(target.scrollHeight, 120);
     target.style.height = `${Math.max(newHeight, 44)}px`;
-    target.style.overflowY = target.scrollHeight > 120 ? 'auto' : 'hidden';
+    target.style.overflowY = 'hidden';
   };
 
   // Keyboard shortcut in chat input: Enter to send

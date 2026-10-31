@@ -49,6 +49,11 @@ body {
 ::-webkit-scrollbar-thumb:hover {
   background: rgba(124, 106, 247, 0.45);
 }
+::-webkit-scrollbar-button {
+  display: none !important;
+  width: 0 !important;
+  height: 0 !important;
+}
 * {
   scrollbar-width: thin;
   scrollbar-color: rgba(255, 255, 255, 0.15) transparent;
@@ -1048,15 +1053,25 @@ body {
 .ai-current-word-bar {
   display: flex;
   align-items: center;
-  flex-wrap: wrap;
-  gap: 6px 10px;
-  padding: 9px 16px;
+  flex-wrap: nowrap;
+  gap: 8px;
+  padding: 8px 16px 6px;
   background: linear-gradient(90deg, rgba(124, 106, 247, 0.12) 0%, rgba(91, 82, 224, 0.05) 100%);
   border-bottom: 1px solid rgba(124, 106, 247, 0.15);
   font-size: 0.8rem;
   color: var(--text2);
-  white-space: normal;
+  white-space: nowrap;
   line-height: 1.45;
+  overflow-x: auto;
+  overflow-y: hidden;
+  scrollbar-width: thin;
+  scrollbar-color: rgba(124, 106, 247, 0.5) rgba(255, 255, 255, 0.04);
+  -webkit-overflow-scrolling: touch;
+}
+
+.ai-current-word-bar > * {
+  flex-shrink: 0;
+  white-space: nowrap;
 }
 
 .ai-word-tag {
@@ -1087,10 +1102,36 @@ body {
 .ai-messages-list {
   flex: 1;
   overflow-y: auto;
+  overflow-x: hidden;
   padding: 16px;
   display: flex;
   flex-direction: column;
   gap: 14px;
+  scrollbar-width: thin;
+  scrollbar-color: rgba(255, 255, 255, 0.15) transparent;
+}
+
+.ai-messages-list::-webkit-scrollbar {
+  width: 5px;
+}
+
+.ai-messages-list::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.ai-messages-list::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, 0.15);
+  border-radius: 10px;
+}
+
+.ai-messages-list::-webkit-scrollbar-thumb:hover {
+  background: rgba(124, 106, 247, 0.45);
+}
+
+.ai-messages-list::-webkit-scrollbar-button {
+  display: none !important;
+  width: 0 !important;
+  height: 0 !important;
 }
 
 .ai-welcome-box {
@@ -1414,16 +1455,46 @@ body {
   display: flex;
   gap: 6px;
   overflow-x: auto;
-  padding: 2px 2px 4px 2px;
-  scrollbar-width: none;
-  -ms-overflow-style: none;
+  overflow-y: hidden;
+  white-space: nowrap;
+  padding: 2px 4px 6px;
+  scrollbar-width: thin;
+  scrollbar-color: rgba(124, 106, 247, 0.5) rgba(255, 255, 255, 0.04);
   -webkit-overflow-scrolling: touch;
 }
 
+/* Sleek Gradient Horizontal Scrollbars for Word Bar & Quick Prompts */
+.ai-current-word-bar::-webkit-scrollbar,
 .ai-quick-buttons::-webkit-scrollbar {
-  display: none;
-  width: 0;
-  height: 0;
+  height: 4px; /* Siêu mỏng 4px */
+  display: block;
+}
+
+.ai-current-word-bar::-webkit-scrollbar-track,
+.ai-quick-buttons::-webkit-scrollbar-track {
+  background: rgba(255, 255, 255, 0.04);
+  border-radius: 10px;
+  margin: 0 10px;
+}
+
+.ai-current-word-bar::-webkit-scrollbar-thumb,
+.ai-quick-buttons::-webkit-scrollbar-thumb {
+  background: linear-gradient(90deg, #7c6af7, #5b52e0);
+  border-radius: 10px;
+  box-shadow: 0 0 6px rgba(124, 106, 247, 0.5);
+}
+
+.ai-current-word-bar::-webkit-scrollbar-thumb:hover,
+.ai-quick-buttons::-webkit-scrollbar-thumb:hover {
+  background: linear-gradient(90deg, #9d8fff, #7c6af7);
+}
+
+/* BỎ HOÀN TOÀN các nút mũi tên xám xấu xí ở 2 đầu */
+.ai-current-word-bar::-webkit-scrollbar-button,
+.ai-quick-buttons::-webkit-scrollbar-button {
+  display: none !important;
+  width: 0 !important;
+  height: 0 !important;
 }
 
 .ai-chip-btn {
@@ -1475,17 +1546,23 @@ body {
   max-height: 120px;
   resize: none;
   font-family: inherit;
-  overflow-y: hidden;
-  scrollbar-width: none;
+  overflow-y: hidden !important;
+  scrollbar-width: none !important;
   -ms-overflow-style: none;
   box-sizing: border-box;
   transition: border-color 0.15s, box-shadow 0.15s;
 }
 
 .ai-chat-input::-webkit-scrollbar {
-  display: none;
-  width: 0;
-  height: 0;
+  display: none !important;
+  width: 0 !important;
+  height: 0 !important;
+}
+
+.ai-chat-input::-webkit-scrollbar-button {
+  display: none !important;
+  width: 0 !important;
+  height: 0 !important;
 }
 
 .ai-chat-input:focus {
