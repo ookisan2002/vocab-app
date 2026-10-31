@@ -11,40 +11,93 @@ import {
 export const GEMINI_STORAGE_KEY = 'vocab_gemini_api_key';
 export const CHAT_HISTORY_STORAGE_KEY = 'vocab_ai_chat_history';
 export const ACTIVE_MODEL_STORAGE_KEY = 'vocab_gemini_active_model';
+export const ACTIVE_VERSION_STORAGE_KEY = 'vocab_gemini_active_version';
 
 /**
- * Candidate models listed by priority
+ * Candidate configurations defined by priority with their supported API version
  */
-export const CANDIDATE_MODELS = [
-  'gemini-2.5-flash',
-  'gemini-2.0-flash',
-  'gemini-1.5-flash-latest',
-  'gemini-1.5-flash',
+export const CANDIDATE_CONFIGS = [
+  { model: 'gemini-1.5-flash', apiVersion: 'v1' },
+  { model: 'gemini-2.0-flash', apiVersion: 'v1beta' },
+  { model: 'gemini-1.5-flash-002', apiVersion: 'v1beta' },
+  { model: 'gemini-1.5-flash-001', apiVersion: 'v1beta' },
+  { model: 'gemini-2.0-flash-exp', apiVersion: 'v1beta' },
+  { model: 'gemini-1.5-flash-8b', apiVersion: 'v1beta' },
+  { model: 'gemini-1.5-flash', apiVersion: 'v1beta' },
+  { model: 'gemini-1.5-pro', apiVersion: 'v1' },
+  { model: 'gemini-1.5-pro', apiVersion: 'v1beta' },
 ];
 
 /**
- * Get active Gemini model from localStorage
+ * Candidate models list for backwards compatibility
  */
-export function getActiveModel() {
+export const CANDIDATE_MODELS = CANDIDATE_CONFIGS.map(c => c.model);
+
+/**
+ * Get active model & apiVersion config from localStorage
+ */
+export function getActiveConfig() {
   try {
-    return localStorage.getItem(ACTIVE_MODEL_STORAGE_KEY) || CANDIDATE_MODELS[0];
+    const model = localStorage.getItem(ACTIVE_MODEL_STORAGE_KEY);
+    const apiVersion = localStorage.getItem(ACTIVE_VERSION_STORAGE_KEY);
+    if (model && model !== 'gemini-2.5-flash') {
+      if (apiVersion) {
+        return { model, apiVersion };
+      }
+      const matched = CANDIDATE_CONFIGS.find(c => c.model === model);
+      if (matched) return matched;
+      return {
+        model,
+        apiVersion: model.startsWith('gemini-1.5') && !model.includes('-00') && !model.includes('-8b') ? 'v1' : 'v1beta',
+      };
+    }
+    return CANDIDATE_CONFIGS[0];
   } catch {
-    return CANDIDATE_MODELS[0];
+    return CANDIDATE_CONFIGS[0];
   }
 }
 
 /**
- * Save active Gemini model to localStorage
+ * Save active model & apiVersion config to localStorage
+ */
+export function setActiveConfig(model, apiVersion = 'v1') {
+  try {
+    if (model) {
+      localStorage.setItem(ACTIVE_MODEL_STORAGE_KEY, model.trim());
+      localStorage.setItem(ACTIVE_VERSION_STORAGE_KEY, (apiVersion || 'v1').trim());
+    } else {
+      localStorage.removeItem(ACTIVE_MODEL_STORAGE_KEY);
+      localStorage.removeItem(ACTIVE_VERSION_STORAGE_KEY);
+    }
+  } catch (e) {
+    console.error('Failed to save active config to localStorage:', e);
+  }
+}
+
+/**
+ * Get active Gemini model string for backwards compatibility
+ */
+export function getActiveModel() {
+  try {
+    return getActiveConfig().model;
+  } catch {
+    return CANDIDATE_CONFIGS[0].model;
+  }
+}
+
+/**
+ * Save active Gemini model for backwards compatibility
  */
 export function setActiveModel(model) {
   try {
     if (model) {
-      localStorage.setItem(ACTIVE_MODEL_STORAGE_KEY, model.trim());
+      const matched = CANDIDATE_CONFIGS.find(c => c.model === model);
+      setActiveConfig(model, matched ? matched.apiVersion : 'v1');
     } else {
-      localStorage.removeItem(ACTIVE_MODEL_STORAGE_KEY);
+      setActiveConfig(null);
     }
   } catch (e) {
-    console.error('Failed to save active model to localStorage:', e);
+    console.error('Failed to save active model:', e);
   }
 }
 
@@ -69,6 +122,7 @@ export function saveApiKey(apiKey) {
     } else {
       localStorage.removeItem(GEMINI_STORAGE_KEY);
       localStorage.removeItem(ACTIVE_MODEL_STORAGE_KEY);
+      localStorage.removeItem(ACTIVE_VERSION_STORAGE_KEY);
     }
   } catch (e) {
     console.error('Failed to save API key to localStorage:', e);
@@ -82,6 +136,7 @@ export function removeApiKey() {
   try {
     localStorage.removeItem(GEMINI_STORAGE_KEY);
     localStorage.removeItem(ACTIVE_MODEL_STORAGE_KEY);
+    localStorage.removeItem(ACTIVE_VERSION_STORAGE_KEY);
   } catch (e) {
     console.error('Failed to remove API key:', e);
   }
@@ -130,10 +185,10 @@ export function removeStoredChatHistory() {
 }
 
 /**
- * Helper to test generateContent on a specific model
+ * Helper to test generateContent on a specific model and apiVersion
  */
-async function testModelGenerateContent(cleanKey, model) {
-  const url = `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(model)}:generateContent?key=${encodeURIComponent(cleanKey)}`;
+export async function testModelGenerateContent(cleanKey, model, apiVersion = 'v1') {
+  const url = `https://generativelanguage.googleapis.com/${apiVersion}/models/${encodeURIComponent(model)}:generateContent?key=${encodeURIComponent(cleanKey)}`;
   return fetch(url, {
     method: 'POST',
     headers: {
@@ -152,10 +207,12 @@ async function testModelGenerateContent(cleanKey, model) {
 
 /**
  * Test the Gemini API key:
- * 1. Queries the models list API to discover active models supporting generateContent.
- * 2. Picks the best flash model and verifies it.
- * 3. Falls back to testing CANDIDATE_MODELS in sequence if the list endpoint fails or is unsupported.
- * 4. Saves the working model to localStorage and returns success.
+ * 1. Step 1: Dynamic Discovery:
+ *    Queries both v1 and v1beta models endpoints to discover active models supporting generateContent.
+ *    Prioritizes flash models and tests discovered candidates one by one.
+ * 2. Step 2: Fallback:
+ *    If discovery does not find a working model, loops through CANDIDATE_CONFIGS in order.
+ * 3. Saves working { model, apiVersion } to localStorage and returns success.
  */
 export async function testApiKey(apiKey) {
   if (!apiKey || !apiKey.trim()) {
@@ -164,91 +221,169 @@ export async function testApiKey(apiKey) {
 
   const cleanKey = apiKey.trim();
 
-  // Step 1: Try calling GET models endpoint to discover models enabled for this API key
-  try {
-    const listUrl = `https://generativelanguage.googleapis.com/v1beta/models?key=${encodeURIComponent(cleanKey)}`;
-    const listRes = await fetch(listUrl, {
-      method: 'GET',
-      headers: {
-        'Content-Type': 'application/json',
-      },
-    });
+  // Step 1: Dynamic Discovery
+  const discoveryVersions = ['v1', 'v1beta'];
+  const discoveredCandidates = [];
 
-    if (listRes.ok) {
-      const data = await listRes.json();
-      const models = data?.models || [];
-      const supported = models.filter(
-        m => Array.isArray(m.supportedGenerationMethods) && m.supportedGenerationMethods.includes('generateContent')
-      );
-      const supportedNames = supported.map(m => (m.name || '').replace(/^models\//, ''));
+  for (const version of discoveryVersions) {
+    try {
+      const listUrl = `https://generativelanguage.googleapis.com/${version}/models?key=${encodeURIComponent(cleanKey)}`;
+      const listRes = await fetch(listUrl, {
+        method: 'GET',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+      });
 
-      // Find the best flash model in order of CANDIDATE_MODELS priority
-      let bestModel = CANDIDATE_MODELS.find(candidate => supportedNames.includes(candidate));
-      if (!bestModel) {
-        bestModel = supportedNames.find(n => n.includes('flash') && !n.includes('embedding') && !n.includes('vision'));
-      }
-      if (!bestModel) {
-        bestModel = supportedNames.find(n => n.includes('flash'));
-      }
-      if (!bestModel) {
-        bestModel = supportedNames.find(n => !n.includes('embedding') && !n.includes('aqa'));
-      }
+      if (listRes.ok) {
+        const data = await listRes.json();
+        const models = Array.isArray(data?.models) ? data.models : [];
+        const supported = models.filter(
+          m => Array.isArray(m.supportedGenerationMethods) && m.supportedGenerationMethods.includes('generateContent')
+        );
+        for (const m of supported) {
+          const cleanName = (m.name || '').replace(/^models\//, '');
+          if (cleanName && !cleanName.includes('embedding') && !cleanName.includes('aqa')) {
+            if (!discoveredCandidates.some(c => c.model === cleanName && c.apiVersion === version)) {
+              discoveredCandidates.push({ model: cleanName, apiVersion: version });
+            }
+          }
+        }
+      } else {
+        const errorData = await listRes.json().catch(() => ({}));
+        const rawMsg = errorData?.error?.message || listRes.statusText;
 
-      if (bestModel) {
-        // Quick verification of the chosen model
-        const testRes = await testModelGenerateContent(cleanKey, bestModel);
-        if (testRes.ok) {
-          const testData = await testRes.json().catch(() => ({}));
-          setActiveModel(bestModel);
-          return { success: true, model: bestModel, data: testData };
+        // Fail fast on universal auth / quota errors
+        if (
+          listRes.status === 400 ||
+          rawMsg.toLowerCase().includes('api key') ||
+          rawMsg.toLowerCase().includes('not valid')
+        ) {
+          throw new Error('API Key không hợp lệ. Vui lòng kiểm tra lại key bạn lấy từ Google AI Studio.');
+        }
+        if (
+          listRes.status === 429 ||
+          rawMsg.toLowerCase().includes('quota') ||
+          rawMsg.toLowerCase().includes('resource_exhausted')
+        ) {
+          throw new Error('API Key đã hết hạn mức (Quota exceeded) hoặc gửi yêu cầu quá nhanh. Vui lòng thử lại sau.');
+        }
+        if (listRes.status === 403) {
+          throw new Error('Không có quyền truy cập Gemini API (403 Forbidden). Hãy chắc chắn bạn đã kích hoạt API trên Google AI Studio.');
         }
       }
-    } else {
-      const errorData = await listRes.json().catch(() => ({}));
-      const rawMsg = errorData?.error?.message || listRes.statusText;
-
-      // Fail fast on universal auth / quota errors
+    } catch (err) {
+      if (err.name === 'TypeError' && err.message.includes('fetch')) {
+        throw new Error('Không thể kết nối đến Google Gemini. Vui lòng kiểm tra lại đường truyền mạng internet.');
+      }
       if (
-        listRes.status === 400 ||
+        err.message &&
+        (err.message.includes('API Key không hợp lệ') ||
+          err.message.includes('Quota') ||
+          err.message.includes('403'))
+      ) {
+        throw err;
+      }
+      console.warn(`[GeminiService] Lỗi khi khám phá models trên ${version}:`, err);
+    }
+  }
+
+  // Prioritize discovered candidates
+  const PRIORITY_NAMES = [
+    'gemini-1.5-flash',
+    'gemini-2.0-flash',
+    'gemini-1.5-flash-002',
+    'gemini-1.5-flash-001',
+    'gemini-2.0-flash-exp',
+    'gemini-1.5-flash-8b',
+    'gemini-1.5-pro',
+  ];
+
+  discoveredCandidates.sort((a, b) => {
+    // 1. Match CANDIDATE_CONFIGS priority
+    const cfgA = CANDIDATE_CONFIGS.findIndex(c => c.model === a.model && c.apiVersion === a.apiVersion);
+    const cfgB = CANDIDATE_CONFIGS.findIndex(c => c.model === b.model && c.apiVersion === b.apiVersion);
+    if (cfgA !== -1 && cfgB !== -1) return cfgA - cfgB;
+    if (cfgA !== -1) return -1;
+    if (cfgB !== -1) return 1;
+
+    // 2. Match PRIORITY_NAMES priority
+    const pA = PRIORITY_NAMES.indexOf(a.model);
+    const pB = PRIORITY_NAMES.indexOf(b.model);
+    if (pA !== -1 && pB !== -1) return pA - pB;
+    if (pA !== -1) return -1;
+    if (pB !== -1) return 1;
+
+    // 3. Flash models before other models
+    const aFlash = a.model.includes('flash');
+    const bFlash = b.model.includes('flash');
+    if (aFlash && !bFlash) return -1;
+    if (!aFlash && bFlash) return 1;
+
+    return 0;
+  });
+
+  // Test discovered candidates one by one
+  for (const cand of discoveredCandidates) {
+    try {
+      const testRes = await testModelGenerateContent(cleanKey, cand.model, cand.apiVersion);
+      if (testRes.ok) {
+        const testData = await testRes.json().catch(() => ({}));
+        setActiveConfig(cand.model, cand.apiVersion);
+        return {
+          success: true,
+          model: cand.model,
+          apiVersion: cand.apiVersion,
+          data: testData,
+        };
+      }
+
+      const errorData = await testRes.json().catch(() => ({}));
+      const rawMsg = errorData?.error?.message || testRes.statusText;
+
+      if (
+        testRes.status === 400 ||
         rawMsg.toLowerCase().includes('api key') ||
         rawMsg.toLowerCase().includes('not valid')
       ) {
         throw new Error('API Key không hợp lệ. Vui lòng kiểm tra lại key bạn lấy từ Google AI Studio.');
       }
       if (
-        listRes.status === 429 ||
+        testRes.status === 429 ||
         rawMsg.toLowerCase().includes('quota') ||
         rawMsg.toLowerCase().includes('resource_exhausted')
       ) {
         throw new Error('API Key đã hết hạn mức (Quota exceeded) hoặc gửi yêu cầu quá nhanh. Vui lòng thử lại sau.');
       }
-      if (listRes.status === 403) {
+      if (testRes.status === 403) {
         throw new Error('Không có quyền truy cập Gemini API (403 Forbidden). Hãy chắc chắn bạn đã kích hoạt API trên Google AI Studio.');
       }
-    }
-  } catch (err) {
-    if (err.name === 'TypeError' && err.message.includes('fetch')) {
-      throw new Error('Không thể kết nối đến Google Gemini. Vui lòng kiểm tra lại đường truyền mạng internet.');
-    }
-    if (
-      err.message &&
-      (err.message.includes('API Key không hợp lệ') ||
-        err.message.includes('Quota') ||
-        err.message.includes('403'))
-    ) {
-      throw err;
+
+      console.warn(`[GeminiService] Model được phát hiện ${cand.model} (${cand.apiVersion}) không khả dụng (${testRes.status}): ${rawMsg}`);
+    } catch (err) {
+      if (err.name === 'TypeError' && err.message.includes('fetch')) {
+        throw new Error('Không thể kết nối đến Google Gemini. Vui lòng kiểm tra lại đường truyền mạng internet.');
+      }
+      if (
+        err.message &&
+        (err.message.includes('API Key không hợp lệ') ||
+          err.message.includes('Quota') ||
+          err.message.includes('403'))
+      ) {
+        throw err;
+      }
     }
   }
 
-  // Step 2: Fallback - test candidates in sequence with a minimal generateContent prompt
+  // Step 2: Fallback - test CANDIDATE_CONFIGS in sequence
   let lastError = null;
-  for (const model of CANDIDATE_MODELS) {
+  for (const { model, apiVersion } of CANDIDATE_CONFIGS) {
     try {
-      const testRes = await testModelGenerateContent(cleanKey, model);
+      const testRes = await testModelGenerateContent(cleanKey, model, apiVersion);
       if (testRes.ok) {
         const testData = await testRes.json().catch(() => ({}));
-        setActiveModel(model);
-        return { success: true, model, data: testData };
+        setActiveConfig(model, apiVersion);
+        return { success: true, model, apiVersion, data: testData };
       }
 
       const errorData = await testRes.json().catch(() => ({}));
@@ -277,8 +412,8 @@ export async function testApiKey(apiKey) {
         rawMsg.toLowerCase().includes('not found') ||
         rawMsg.toLowerCase().includes('is not supported for generatecontent')
       ) {
-        console.warn(`[GeminiService] Model ${model} không khả dụng (404). Đang thử model tiếp theo...`);
-        lastError = new Error(`Model ${model} không tồn tại (404).`);
+        console.warn(`[GeminiService] Model ${model} (${apiVersion}) không khả dụng (404). Đang thử model tiếp theo...`);
+        lastError = new Error(`Model ${model} (${apiVersion}) không tồn tại (404).`);
         continue;
       }
 
@@ -304,7 +439,7 @@ export async function testApiKey(apiKey) {
 
 /**
  * Send chat conversation to Gemini API with IELTS tutor system prompt and current word context.
- * Automatically tries active model first, and gracefully falls back to candidate models if 404 is encountered.
+ * Automatically tries active config first, and gracefully falls back to candidate configs if 404 is encountered.
  */
 export async function sendChatMessage(apiKey, messages, currentWord) {
   if (!apiKey || !apiKey.trim()) {
@@ -404,18 +539,20 @@ ${PROJECT_KNOWLEDGE}${wordContext}`;
     },
   };
 
-  // Build candidate try list: active model first, then remaining candidates
-  const initialModel = getActiveModel() || CANDIDATE_MODELS[0];
+  // Build candidate queue starting with active config, followed by remaining candidate configs
+  const activeConfig = getActiveConfig();
   const candidateQueue = [
-    initialModel,
-    ...CANDIDATE_MODELS.filter(m => m !== initialModel),
+    activeConfig,
+    ...CANDIDATE_CONFIGS.filter(
+      c => c.model !== activeConfig.model || c.apiVersion !== activeConfig.apiVersion
+    ),
   ];
 
   let lastError = null;
 
   for (let i = 0; i < candidateQueue.length; i++) {
-    const currentModel = candidateQueue[i];
-    const url = `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(currentModel)}:generateContent?key=${encodeURIComponent(cleanKey)}`;
+    const { model, apiVersion } = candidateQueue[i];
+    const url = `https://generativelanguage.googleapis.com/${apiVersion}/models/${encodeURIComponent(model)}:generateContent?key=${encodeURIComponent(cleanKey)}`;
 
     try {
       const response = await fetch(url, {
@@ -436,8 +573,8 @@ ${PROJECT_KNOWLEDGE}${wordContext}`;
           rawMsg.toLowerCase().includes('not found') ||
           rawMsg.toLowerCase().includes('is not supported for generatecontent')
         ) {
-          console.warn(`[GeminiService] Model ${currentModel} trả về 404 (${rawMsg}). Tự động chuyển model kế tiếp...`);
-          lastError = new Error(`Model ${currentModel} không tồn tại (404).`);
+          console.warn(`[GeminiService] Model ${model} (${apiVersion}) trả về 404 (${rawMsg}). Tự động chuyển model kế tiếp...`);
+          lastError = new Error(`Model ${model} (${apiVersion}) không tồn tại (404).`);
           continue;
         }
 
@@ -451,10 +588,10 @@ ${PROJECT_KNOWLEDGE}${wordContext}`;
         throw new Error(rawMsg || `Lỗi từ Gemini API (mã ${response.status})`);
       }
 
-      // Success! If fallback model succeeded, update active model in localStorage
-      if (currentModel !== initialModel) {
-        console.info(`[GeminiService] Đã tự động chuyển và kích hoạt model mới: ${currentModel}`);
-        setActiveModel(currentModel);
+      // Success! If fallback model succeeded, update active config in localStorage
+      if (model !== activeConfig.model || apiVersion !== activeConfig.apiVersion) {
+        console.info(`[GeminiService] Đã tự động chuyển và kích hoạt config mới: ${model} (${apiVersion})`);
+        setActiveConfig(model, apiVersion);
       }
 
       const data = await response.json();

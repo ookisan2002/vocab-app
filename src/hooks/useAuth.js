@@ -3,6 +3,8 @@ import {
   onAuthStateChanged,
   signInWithPopup,
   signOut,
+  browserLocalPersistence,
+  setPersistence,
 } from 'firebase/auth';
 import {
   doc,
@@ -130,11 +132,40 @@ export function useAuth() {
     if (isSigningIn) return;
     setIsSigningIn(true);
     try {
+      // Ensure local persistence is set before initiating popup
+      await setPersistence(auth, browserLocalPersistence).catch(() => {});
       await signInWithPopup(auth, googleProvider);
     } catch (err) {
       console.error('Google sign-in error:', err);
-      if (err.code !== 'auth/popup-closed-by-user') {
-        alert('Đăng nhập thất bại: ' + err.message);
+      const isPopupClosed =
+        err?.code === 'auth/popup-closed-by-user' ||
+        err?.code === 'auth/cancelled-popup-request';
+      const isMissingInitialState =
+        err?.code === 'auth/missing-initial-state' ||
+        (err?.message && err.message.toLowerCase().includes('missing initial state'));
+
+      if (isPopupClosed) {
+        console.warn('Google sign-in popup was closed by user.');
+      } else if (isMissingInitialState) {
+        // Fallback retry attempt for cross-origin partition issues
+        try {
+          console.warn('Retrying signInWithPopup after missing initial state...');
+          await setPersistence(auth, browserLocalPersistence);
+          await signInWithPopup(auth, googleProvider);
+          return;
+        } catch (retryErr) {
+          console.error('Retry Google sign-in failed:', retryErr);
+          if (
+            retryErr?.code !== 'auth/popup-closed-by-user' &&
+            retryErr?.code !== 'auth/cancelled-popup-request'
+          ) {
+            alert(
+              'Đăng nhập chưa hoàn tất do trình duyệt giới hạn cookie hoặc trạng thái phiên (Missing initial state). Vui lòng thử lại hoặc mở trong cửa sổ mới không chặn cookie.'
+            );
+          }
+        }
+      } else {
+        alert('Đăng nhập thất bại: ' + (err?.message || 'Lỗi không xác định'));
       }
     } finally {
       setIsSigningIn(false);
