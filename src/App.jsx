@@ -10,6 +10,7 @@ import QuizCard from './components/QuizCard';
 import VocabListModal from './components/VocabListModal';
 import AddWordModal from './components/AddWordModal';
 import HistoryBar from './components/HistoryBar';
+import AiTutorModal from './components/AiTutorModal';
 import './App.css';
 
 export default function App() {
@@ -241,6 +242,8 @@ export default function App() {
       )}
 
       {showAdd && <AddWordModal onClose={handleAddClose} />}
+
+      <AiTutorModal currentWord={currentCard?.word} />
     </div>
   );
 }

@@ -53,5 +53,12 @@ Khi xử lý các yêu cầu phát triển trong dự án này, hệ thống tu�
 │  BƯỚC 3: REVIEW & RESPONSE (Model Cao Cấp)             │
 │  - Nghiệm thu nhanh kết quả                            │
 │  - Báo cáo súc tích cho người dùng                     │
+│  - Xin phép người dùng trước khi thực hiện git push    │
 └────────────────────────────────────────────────────────┘
 ```
+
+---
+
+### 4. 🛑 Quy tắc An toàn Git (Git Push Protocol)
+* **Tuyệt đối KHÔNG tự ý chạy lệnh `git push`**: Mọi thay đổi mã nguồn phải được build và kiểm thử chạy trơn tru ở môi trường Local (`http://localhost:5173`) trước.
+* **Quyền kiểm soát thuộc về người dùng:** Chỉ khi người dùng kiểm tra xong ở local và đồng ý/yêu cầu thì mới được phép thực hiện thao tác đẩy code (`git push`) lên remote repository.
