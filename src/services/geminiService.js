@@ -9,6 +9,7 @@ import {
 } from '../utils/securityGuard';
 
 export const GEMINI_STORAGE_KEY = 'vocab_gemini_api_key';
+export const CHAT_HISTORY_STORAGE_KEY = 'vocab_ai_chat_history';
 
 /**
  * Get stored Gemini API key from localStorage
@@ -44,6 +45,48 @@ export function removeApiKey() {
     localStorage.removeItem(GEMINI_STORAGE_KEY);
   } catch (e) {
     console.error('Failed to remove API key:', e);
+  }
+}
+
+/**
+ * Load stored chat history from localStorage
+ */
+export function loadStoredChatHistory() {
+  try {
+    const raw = localStorage.getItem(CHAT_HISTORY_STORAGE_KEY);
+    if (!raw) return [];
+    const parsed = JSON.parse(raw);
+    return Array.isArray(parsed) ? parsed : [];
+  } catch (e) {
+    console.error('Failed to load chat history from localStorage:', e);
+    return [];
+  }
+}
+
+/**
+ * Save chat history to localStorage (limit to latest 30 messages)
+ */
+export function saveStoredChatHistory(messages) {
+  try {
+    if (Array.isArray(messages)) {
+      const trimmed = messages.slice(-30);
+      localStorage.setItem(CHAT_HISTORY_STORAGE_KEY, JSON.stringify(trimmed));
+    } else {
+      localStorage.removeItem(CHAT_HISTORY_STORAGE_KEY);
+    }
+  } catch (e) {
+    console.error('Failed to save chat history to localStorage:', e);
+  }
+}
+
+/**
+ * Remove stored chat history
+ */
+export function removeStoredChatHistory() {
+  try {
+    localStorage.removeItem(CHAT_HISTORY_STORAGE_KEY);
+  } catch (e) {
+    console.error('Failed to remove chat history:', e);
   }
 }
 

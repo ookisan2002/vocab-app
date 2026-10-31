@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef } from 'react';
+import { useStore } from '../store/useStore';
 import {
   getStoredApiKey,
-  saveApiKey,
   testApiKey,
   sendChatMessage,
 } from '../services/geminiService';
@@ -167,17 +167,23 @@ function FormattedMessage({ content }) {
 }
 
 export default function AiTutorModal({ currentWord }) {
+  const user = useStore(s => s.user);
+  const geminiApiKey = useStore(s => s.geminiApiKey);
+  const setGeminiApiKey = useStore(s => s.setGeminiApiKey);
+  const aiChatHistory = useStore(s => s.aiChatHistory);
+  const setAiChatHistory = useStore(s => s.setAiChatHistory);
+
   const [isOpen, setIsOpen] = useState(false);
-  const [apiKey, setApiKey] = useState(() => getStoredApiKey());
-  const [isConfiguringKey, setIsConfiguringKey] = useState(() => !getStoredApiKey());
-  const [inputKey, setInputKey] = useState(() => getStoredApiKey());
+  const [apiKey, setApiKey] = useState(() => geminiApiKey || getStoredApiKey() || '');
+  const [isConfiguringKey, setIsConfiguringKey] = useState(() => !(geminiApiKey || getStoredApiKey()));
+  const [inputKey, setInputKey] = useState(() => geminiApiKey || getStoredApiKey() || '');
   const [showKeyPassword, setShowKeyPassword] = useState(false);
   const [isTestingKey, setIsTestingKey] = useState(false);
   const [keyError, setKeyError] = useState('');
   const [keySuccess, setKeySuccess] = useState('');
 
   // Chat states
-  const [messages, setMessages] = useState([]);
+  const [messages, setMessages] = useState(() => (Array.isArray(aiChatHistory) && aiChatHistory.length > 0 ? aiChatHistory : []));
   const [inputText, setInputText] = useState('');
   const [isSending, setIsSending] = useState(false);
   const [chatError, setChatError] = useState('');
@@ -189,6 +195,24 @@ export default function AiTutorModal({ currentWord }) {
   const wordText = typeof currentWord === 'string' ? currentWord : currentWord?.word;
   const wordVi = typeof currentWord === 'object' ? currentWord?.vi : '';
   const wordTopic = typeof currentWord === 'object' ? currentWord?.topic : '';
+
+  // Synchronize when geminiApiKey is updated from store (e.g. Google login sync, Firestore real-time)
+  useEffect(() => {
+    if (geminiApiKey) {
+      setApiKey(geminiApiKey);
+      setInputKey(geminiApiKey);
+      setIsConfiguringKey(false);
+    } else {
+      setApiKey('');
+    }
+  }, [geminiApiKey]);
+
+  // Synchronize when aiChatHistory is updated from store
+  useEffect(() => {
+    if (Array.isArray(aiChatHistory)) {
+      setMessages(aiChatHistory);
+    }
+  }, [aiChatHistory]);
 
   // Auto-scroll chat to bottom
   useEffect(() => {
@@ -220,8 +244,9 @@ export default function AiTutorModal({ currentWord }) {
     setIsTestingKey(true);
     try {
       await testApiKey(inputKey);
-      saveApiKey(inputKey);
-      setApiKey(inputKey.trim());
+      const cleanKey = inputKey.trim();
+      setApiKey(cleanKey);
+      setGeminiApiKey(cleanKey);
       setKeySuccess('Kết nối thành công! Đang chuyển vào phòng học...');
       setTimeout(() => {
         setIsConfiguringKey(false);
@@ -239,7 +264,8 @@ export default function AiTutorModal({ currentWord }) {
     const text = (textToSend || inputText).trim();
     if (!text || isSending) return;
 
-    if (!apiKey) {
+    const activeKey = apiKey || geminiApiKey;
+    if (!activeKey) {
       setIsConfiguringKey(true);
       return;
     }
@@ -253,6 +279,7 @@ export default function AiTutorModal({ currentWord }) {
 
     const newMessages = [...messages, userMsg];
     setMessages(newMessages);
+    setAiChatHistory(newMessages);
     setInputText('');
     if (inputRef.current) {
       inputRef.current.style.height = '44px';
@@ -262,7 +289,7 @@ export default function AiTutorModal({ currentWord }) {
     setIsSending(true);
 
     try {
-      const reply = await sendChatMessage(apiKey, newMessages, currentWord);
+      const reply = await sendChatMessage(activeKey, newMessages, currentWord);
       const isSecurityBlocked =
         reply === SECURITY_BLOCKED_MESSAGE ||
         (typeof reply === 'string' && reply.startsWith('🛡️'));
@@ -274,7 +301,9 @@ export default function AiTutorModal({ currentWord }) {
         isSecurityBlocked,
         timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
       };
-      setMessages([...newMessages, assistantMsg]);
+      const finalMessages = [...newMessages, assistantMsg];
+      setMessages(finalMessages);
+      setAiChatHistory(finalMessages);
     } catch (err) {
       setChatError(err.message || 'Có lỗi xảy ra khi trò chuyện với AI.');
     } finally {
@@ -345,9 +374,9 @@ export default function AiTutorModal({ currentWord }) {
         className={`ai-fab-button ${isOpen ? 'active' : ''}`}
         onClick={() => {
           setIsOpen(!isOpen);
-          if (!apiKey) setIsConfiguringKey(true);
+          if (!apiKey && !geminiApiKey) setIsConfiguringKey(true);
         }}
-        title="IELTS AI Tutor"
+        title={user && (apiKey || geminiApiKey) ? "IELTS AI Tutor (☁️ Đã đồng bộ Google)" : "IELTS AI Tutor"}
         aria-label="IELTS AI Tutor"
       >
         <div className="ai-fab-icon-wrap">
@@ -379,10 +408,30 @@ export default function AiTutorModal({ currentWord }) {
                     </span>
                   </div>
                   <p className="ai-subtitle">Trợ lý học thuật & Luyện đề IELTS</p>
+                  {user && (apiKey || geminiApiKey) && (
+                    <div className="ai-synced-badge" title="Đã đồng bộ API Key theo tài khoản Google qua Cloud Firestore">
+                      ☁️ Đã đồng bộ API Key theo tài khoản Google
+                    </div>
+                  )}
                 </div>
               </div>
 
               <div className="ai-header-actions">
+                {messages.length > 0 && !isConfiguringKey && (
+                  <button
+                    type="button"
+                    className="ai-btn-icon"
+                    onClick={() => {
+                      if (confirm('Xóa lịch sử cuộc trò chuyện này?')) {
+                        setMessages([]);
+                        setAiChatHistory([]);
+                      }
+                    }}
+                    title="Xóa lịch sử trò chuyện"
+                  >
+                    🗑️
+                  </button>
+                )}
                 <button
                   type="button"
                   className="ai-btn-icon"
@@ -391,9 +440,9 @@ export default function AiTutorModal({ currentWord }) {
                     setKeyError('');
                     setKeySuccess('');
                   }}
-                  title={isConfiguringKey && apiKey ? 'Quay lại Chat' : 'Cấu hình API Key'}
+                  title={isConfiguringKey && (apiKey || geminiApiKey) ? 'Quay lại Chat' : 'Cấu hình API Key'}
                 >
-                  {isConfiguringKey && apiKey ? '💬' : '⚙️'}
+                  {isConfiguringKey && (apiKey || geminiApiKey) ? '💬' : '⚙️'}
                 </button>
                 <button
                   type="button"
@@ -414,6 +463,12 @@ export default function AiTutorModal({ currentWord }) {
                 <p className="ai-config-desc">
                   IELTS AI Tutor sử dụng mô hình <strong>Gemini 1.5 Flash</strong> siêu tốc và hoàn toàn <strong>miễn phí</strong> từ Google.
                 </p>
+
+                {user && (apiKey || geminiApiKey) && (
+                  <div className="ai-synced-config-notice">
+                    <span>☁️ Đã đồng bộ API Key theo tài khoản Google (<strong>{user.email}</strong>)</span>
+                  </div>
+                )}
 
                 <div className="ai-guide-box">
                   <div className="ai-guide-step">
@@ -490,12 +545,12 @@ export default function AiTutorModal({ currentWord }) {
                       )}
                     </button>
 
-                    {apiKey && (
+                    {(apiKey || geminiApiKey) && (
                       <button
                         type="button"
                         className="ai-btn-secondary"
                         onClick={() => {
-                          setInputKey(apiKey);
+                          setInputKey(apiKey || geminiApiKey);
                           setIsConfiguringKey(false);
                           setKeyError('');
                         }}
@@ -504,11 +559,34 @@ export default function AiTutorModal({ currentWord }) {
                         Quay lại trò chuyện
                       </button>
                     )}
+
+                    {(apiKey || geminiApiKey) && (
+                      <button
+                        type="button"
+                        className="ai-btn-clear-key"
+                        onClick={() => {
+                          if (confirm('Xóa API Key khỏi ứng dụng và tài khoản Google?')) {
+                            setApiKey('');
+                            setInputKey('');
+                            setGeminiApiKey('');
+                            setIsConfiguringKey(true);
+                          }
+                        }}
+                        disabled={isTestingKey}
+                        title="Xóa API Key đã lưu"
+                      >
+                        Xóa Key
+                      </button>
+                    )}
                   </div>
                 </form>
 
                 <p className="ai-config-footnote">
-                  🔒 Key của bạn được lưu an toàn trên trình duyệt của máy bạn (localStorage) và chỉ gửi trực tiếp tới Google API.
+                  {user ? (
+                    <>☁️ Key và lịch sử học tập được đồng bộ an toàn qua tài khoản Google của bạn trên Cloud Firestore.</>
+                  ) : (
+                    <>🔒 Key của bạn được lưu an toàn trên trình duyệt của máy bạn (localStorage) và chỉ gửi trực tiếp tới Google API. Hãy đăng nhập Google để tự động đồng bộ sang thiết bị khác!</>
+                  )}
                 </p>
               </div>
             ) : (

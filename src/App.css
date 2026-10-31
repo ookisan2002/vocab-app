@@ -802,6 +802,21 @@ body {
   margin: 0;
 }
 
+.ai-synced-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 0.68rem;
+  color: #38bdf8;
+  background: rgba(56, 189, 248, 0.12);
+  border: 1px solid rgba(56, 189, 248, 0.28);
+  padding: 1px 7px;
+  border-radius: 10px;
+  margin-top: 4px;
+  font-weight: 500;
+  line-height: 1.3;
+}
+
 .ai-header-actions {
   display: flex;
   align-items: center;
@@ -1021,6 +1036,35 @@ body {
 .ai-btn-secondary:hover {
   background: var(--bg3);
   color: var(--text);
+}
+
+.ai-btn-clear-key {
+  width: 100%;
+  background: transparent;
+  border: 1px solid rgba(240, 82, 82, 0.35);
+  color: #ff7878;
+  border-radius: 10px;
+  padding: 8px;
+  font-size: 0.8rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.15s;
+}
+
+.ai-btn-clear-key:hover {
+  background: rgba(240, 82, 82, 0.12);
+  border-color: #f05252;
+}
+
+.ai-synced-config-notice {
+  background: rgba(56, 189, 248, 0.1);
+  border: 1px solid rgba(56, 189, 248, 0.3);
+  color: #38bdf8;
+  padding: 8px 12px;
+  border-radius: 8px;
+  font-size: 0.78rem;
+  line-height: 1.4;
+  text-align: center;
 }
 
 .ai-spinner-sm {

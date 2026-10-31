@@ -1,6 +1,12 @@
 import { create } from 'zustand';
 import { DEFAULT_VOCAB } from '../data/defaultVocab';
 import { getNextInterval } from '../utils/srs';
+import {
+  getStoredApiKey,
+  saveApiKey,
+  loadStoredChatHistory,
+  saveStoredChatHistory,
+} from '../services/geminiService';
 
 const LOCAL_KEY = 'vocab_progress_local';
 const CUSTOM_WORDS_KEY = 'vocab_custom_words';
@@ -44,6 +50,30 @@ export const useStore = create((set, get) => ({
   // ─── Vocabulary ─────────────────────────────────────
   customWords: loadCustomWords(),
   progress: loadLocalProgress(), // { wordId: { status, correctStreak, srsStage, lastReviewedAt, nextReviewAt } }
+
+  // ─── AI Tutor & Gemini ──────────────────────────────
+  geminiApiKey: getStoredApiKey(),
+  aiChatHistory: loadStoredChatHistory(),
+
+  setGeminiApiKey: (key) => {
+    const cleanKey = (key || '').trim();
+    saveApiKey(cleanKey);
+    set({ geminiApiKey: cleanKey });
+    const { firestoreSave, progress, customWords, aiChatHistory, user } = get();
+    if (user && firestoreSave) {
+      firestoreSave(progress, customWords, cleanKey, aiChatHistory);
+    }
+  },
+
+  setAiChatHistory: (messages) => {
+    const trimmed = Array.isArray(messages) ? messages.slice(-30) : [];
+    saveStoredChatHistory(trimmed);
+    set({ aiChatHistory: trimmed });
+    const { firestoreSave, progress, customWords, geminiApiKey, user } = get();
+    if (user && firestoreSave) {
+      firestoreSave(progress, customWords, geminiApiKey, trimmed);
+    }
+  },
 
   getAllWords: () => {
     const { customWords } = get();
@@ -95,7 +125,7 @@ export const useStore = create((set, get) => ({
       };
       saveLocalProgress(newProgress);
       // Trigger Firestore save if logged in
-      if (state.firestoreSave) state.firestoreSave(newProgress, state.customWords);
+      if (state.firestoreSave) state.firestoreSave(newProgress, state.customWords, state.geminiApiKey, state.aiChatHistory);
       return { progress: newProgress };
     });
   },
@@ -190,7 +220,7 @@ export const useStore = create((set, get) => ({
     set(state => {
       const newCustom = [...state.customWords, ...words];
       saveCustomWords(newCustom);
-      if (state.firestoreSave) state.firestoreSave(state.progress, newCustom);
+      if (state.firestoreSave) state.firestoreSave(state.progress, newCustom, state.geminiApiKey, state.aiChatHistory);
       return { customWords: newCustom };
     });
   },
@@ -202,7 +232,7 @@ export const useStore = create((set, get) => ({
       delete newProgress[id];
       saveLocalProgress(newProgress);
       saveCustomWords(newCustom);
-      if (state.firestoreSave) state.firestoreSave(newProgress, newCustom);
+      if (state.firestoreSave) state.firestoreSave(newProgress, newCustom, state.geminiApiKey, state.aiChatHistory);
       return { customWords: newCustom, progress: newProgress };
     });
   },
@@ -211,24 +241,33 @@ export const useStore = create((set, get) => ({
     set(state => {
       const newProgress = {};
       saveLocalProgress(newProgress);
-      if (state.firestoreSave) state.firestoreSave(newProgress, state.customWords);
+      if (state.firestoreSave) state.firestoreSave(newProgress, state.customWords, state.geminiApiKey, state.aiChatHistory);
       return { progress: newProgress, sessionCorrect: 0, sessionTotal: 0, history: [] };
     });
   },
 
   loadFromFirestore: (data) => {
     if (!data) return;
-    const { progress, customWords } = data;
+    const { progress, customWords, geminiApiKey, aiChatHistory } = data;
     if (progress) {
       saveLocalProgress(progress);
     }
     if (customWords) {
       saveCustomWords(customWords);
     }
-    set({
+    const updates = {
       progress: progress || {},
       customWords: customWords || [],
-    });
+    };
+    if (typeof geminiApiKey === 'string' && geminiApiKey.trim()) {
+      saveApiKey(geminiApiKey.trim());
+      updates.geminiApiKey = geminiApiKey.trim();
+    }
+    if (Array.isArray(aiChatHistory)) {
+      saveStoredChatHistory(aiChatHistory);
+      updates.aiChatHistory = aiChatHistory;
+    }
+    set(updates);
   },
 
   // ─── Google Sheets import ─────────────────────────────
