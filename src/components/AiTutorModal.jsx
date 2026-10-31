@@ -38,41 +38,128 @@ function formatInline(str) {
 }
 
 /**
- * Component to render structured AI messages
+ * Component to render a code block with copy button
+ */
+function CodeBlock({ code, language }) {
+  const [copied, setCopied] = useState(false);
+
+  const handleCopy = async () => {
+    try {
+      if (navigator.clipboard && navigator.clipboard.writeText) {
+        await navigator.clipboard.writeText(code);
+      } else {
+        const textArea = document.createElement('textarea');
+        textArea.value = code;
+        textArea.style.position = 'fixed';
+        textArea.style.left = '-9999px';
+        document.body.appendChild(textArea);
+        textArea.select();
+        document.execCommand('copy');
+        document.body.removeChild(textArea);
+      }
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+    } catch (err) {
+      console.error('Failed to copy text:', err);
+    }
+  };
+
+  return (
+    <div className="ai-code-block">
+      <div className="ai-code-header">
+        <span className="ai-code-lang">{language || 'text'}</span>
+        <button
+          type="button"
+          className="ai-copy-btn"
+          onClick={handleCopy}
+          title="Sao chép toàn bộ khối mã"
+        >
+          {copied ? '✓ Đã chép!' : '📋 Copy'}
+        </button>
+      </div>
+      <pre className="ai-code-content">
+        <code>{code}</code>
+      </pre>
+    </div>
+  );
+}
+
+/**
+ * Render standard text lines (bullets, numbers, paragraphs)
+ */
+function renderTextLines(text, keyPrefix = '') {
+  const lines = text.split('\n');
+  return lines.map((line, idx) => {
+    const trimmed = line.trim();
+    if (!trimmed) {
+      return <div key={`${keyPrefix}-blank-${idx}`} className="ai-blank-line" />;
+    }
+    if (trimmed.startsWith('- ') || trimmed.startsWith('* ')) {
+      return (
+        <div key={`${keyPrefix}-bullet-${idx}`} className="ai-bullet-item">
+          <span className="ai-bullet-dot">•</span>
+          <span className="ai-bullet-text">{formatInline(trimmed.substring(2))}</span>
+        </div>
+      );
+    }
+    const numMatch = trimmed.match(/^(\d+)\.\s+(.*)/);
+    if (numMatch) {
+      return (
+        <div key={`${keyPrefix}-num-${idx}`} className="ai-numbered-item">
+          <span className="ai-number-prefix">{numMatch[1]}.</span>
+          <span className="ai-numbered-text">{formatInline(numMatch[2])}</span>
+        </div>
+      );
+    }
+    return (
+      <p key={`${keyPrefix}-p-${idx}`} className="ai-paragraph">
+        {formatInline(line)}
+      </p>
+    );
+  });
+}
+
+/**
+ * Component to render structured AI messages including code blocks
  */
 function FormattedMessage({ content }) {
   if (!content) return null;
-  const lines = content.split('\n');
+
+  // Split content by code blocks: ```[language]?\n[code]```
+  const codeBlockRegex = /```([a-zA-Z0-9_-]*)\s*?(?:\r?\n)([\s\S]*?)```/g;
+  const segments = [];
+  let lastIndex = 0;
+  let match;
+
+  while ((match = codeBlockRegex.exec(content)) !== null) {
+    if (match.index > lastIndex) {
+      segments.push({
+        type: 'text',
+        text: content.substring(lastIndex, match.index),
+      });
+    }
+    segments.push({
+      type: 'code',
+      language: match[1]?.trim() || 'text',
+      code: match[2]?.replace(/\r?\n$/, '') || '',
+    });
+    lastIndex = codeBlockRegex.lastIndex;
+  }
+
+  if (lastIndex < content.length) {
+    segments.push({
+      type: 'text',
+      text: content.substring(lastIndex),
+    });
+  }
 
   return (
     <div className="ai-formatted-content">
-      {lines.map((line, idx) => {
-        const trimmed = line.trim();
-        if (!trimmed) {
-          return <div key={idx} className="ai-blank-line" />;
+      {segments.map((seg, sIdx) => {
+        if (seg.type === 'code') {
+          return <CodeBlock key={`code-${sIdx}`} code={seg.code} language={seg.language} />;
         }
-        if (trimmed.startsWith('- ') || trimmed.startsWith('* ')) {
-          return (
-            <div key={idx} className="ai-bullet-item">
-              <span className="ai-bullet-dot">•</span>
-              <span className="ai-bullet-text">{formatInline(trimmed.substring(2))}</span>
-            </div>
-          );
-        }
-        const numMatch = trimmed.match(/^(\d+)\.\s+(.*)/);
-        if (numMatch) {
-          return (
-            <div key={idx} className="ai-numbered-item">
-              <span className="ai-number-prefix">{numMatch[1]}.</span>
-              <span className="ai-numbered-text">{formatInline(numMatch[2])}</span>
-            </div>
-          );
-        }
-        return (
-          <p key={idx} className="ai-paragraph">
-            {formatInline(line)}
-          </p>
-        );
+        return renderTextLines(seg.text, `seg-${sIdx}`);
       })}
     </div>
   );
@@ -188,7 +275,12 @@ export default function AiTutorModal({ currentWord }) {
   // Quick prompt triggers
   const handleQuickPrompt = (type) => {
     let prompt = '';
-    if (type === 'explain') {
+    if (type === 'format_words') {
+      const topicName = wordTopic || 'IELTS Academic Core';
+      prompt = `📋 Hãy gợi ý cho tôi 5 từ vựng IELTS Band 7.5+ đắt giá về chủ đề "${topicName}" theo đúng chuẩn định dạng Nhập hàng loạt của ứng dụng (đặt trong khối mã text code block) để tôi có thể copy dán trực tiếp vào app.`;
+    } else if (type === 'guide') {
+      prompt = `❓ Hãy hướng dẫn chi tiết cách sử dụng các tính năng trong ứng dụng VocabMaster (Thẻ học từ mới, Thẻ kiểm tra xen kẽ, cơ chế SRS tự động) và các phím tắt học tập hiệu quả.`;
+    } else if (type === 'explain') {
       if (wordText) {
         prompt = `💡 Hãy giải thích chi tiết từ "${wordText}" (${wordVi || ''}), chỉ ra các collocations thông dụng và đặt 2 câu ví dụ chuẩn IELTS Band 7.5+.`;
       } else {
@@ -475,6 +567,22 @@ export default function AiTutorModal({ currentWord }) {
                     <span>💡 Gợi ý hỏi nhanh:</span>
                   </div>
                   <div className="ai-quick-buttons">
+                    <button
+                      type="button"
+                      className="ai-chip-btn ai-chip-btn-highlight"
+                      onClick={() => handleQuickPrompt('format_words')}
+                      disabled={isSending}
+                    >
+                      📋 Tạo 5 từ theo format thêm vào app
+                    </button>
+                    <button
+                      type="button"
+                      className="ai-chip-btn"
+                      onClick={() => handleQuickPrompt('guide')}
+                      disabled={isSending}
+                    >
+                      ❓ Hướng dẫn sử dụng app & phím tắt
+                    </button>
                     <button
                       type="button"
                       className="ai-chip-btn"

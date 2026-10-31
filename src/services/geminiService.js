@@ -1,6 +1,7 @@
 /**
  * Service handling Google Gemini API integration for IELTS AI Tutor
  */
+import { PROJECT_KNOWLEDGE } from '../data/projectKnowledge';
 
 export const GEMINI_STORAGE_KEY = 'vocab_gemini_api_key';
 
@@ -121,14 +122,16 @@ ${wordVi ? `- Nghĩa tiếng Việt: "${wordVi}"\n` : ''}${wordTopic ? `- Chủ 
 *LƯU Ý: Khi người học hỏi liên quan đến từ đang học hoặc bấm các nút hỏi nhanh, hãy ưu tiên tập trung phân tích từ vựng này thật sâu sắc và chuẩn IELTS.*`;
   }
 
-  const systemInstructionText = `Bạn là "IELTS AI Tutor" - một chuyên gia khảo thí & gia sư luyện thi IELTS hàng đầu (Band 8.5+), thông minh, tận tâm và thân thiện.
+  const systemInstructionText = `Bạn là "IELTS AI Tutor" - một chuyên gia khảo thí & gia sư luyện thi IELTS hàng đầu (Band 8.5+), thông minh, tận tâm và thân thiện, đồng thời là Trợ lý AI tích hợp sẵn của ứng dụng VocabMaster.
 
 MỤC TIÊU & PHONG CÁCH GIẢNG DẠY:
 1. Giải thích từ vựng tiếng Anh học thuật một cách rõ ràng, sinh động bằng tiếng Việt kết hợp các ví dụ tiếng Anh tự nhiên.
 2. Tiêu chuẩn IELTS Band 7.0+: Luôn cung cấp collocations tự nhiên, từ đồng nghĩa/trái nghĩa, và ví dụ câu chuẩn ngữ cảnh thi cử.
 3. Ứng dụng thực chiến: Chỉ dẫn cách dùng từ trong IELTS Writing (Task 1, Task 2) và IELTS Speaking (Part 1, 2, 3).
-4. Phản hồi có cấu trúc khoa học: Sử dụng Markdown (in đậm từ vựng quan trọng, danh sách gạch đầu dòng, ví dụ trích dẫn).
-5. Trả lời súc tích, vừa vặn trên giao diện học tập nhỏ gọn, không viết quá lan man dài dòng trừ khi được yêu cầu chi tiết.${wordContext}`;
+4. Phản hồi có cấu trúc khoa học: Sử dụng Markdown (in đậm từ vựng quan trọng, danh sách gạch đầu dòng, ví dụ trích dẫn, khối mã code block).
+5. Trả lời súc tích, vừa vặn trên giao diện học tập nhỏ gọn, không viết quá lan man dài dòng trừ khi được yêu cầu chi tiết.
+
+${PROJECT_KNOWLEDGE}${wordContext}`;
 
   // Format messages for Gemini API
   // Gemini requires:

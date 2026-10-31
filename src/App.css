@@ -1205,6 +1205,74 @@ body {
   color: #ffda79;
 }
 
+/* Code Block in AI Messages */
+.ai-code-block {
+  margin: 8px 0;
+  border-radius: 8px;
+  background: #11131b;
+  border: 1px solid rgba(124, 106, 247, 0.35);
+  overflow: hidden;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.35);
+}
+
+.ai-code-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 6px 12px;
+  background: rgba(0, 0, 0, 0.45);
+  border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+.ai-code-lang {
+  font-size: 0.72rem;
+  font-family: monospace;
+  text-transform: uppercase;
+  color: var(--accent);
+  font-weight: 700;
+  letter-spacing: 0.05em;
+}
+
+.ai-copy-btn {
+  background: rgba(124, 106, 247, 0.2);
+  border: 1px solid rgba(124, 106, 247, 0.45);
+  color: #ffffff;
+  padding: 3px 9px;
+  border-radius: 5px;
+  font-size: 0.72rem;
+  font-weight: 600;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  transition: all 0.15s ease;
+}
+
+.ai-copy-btn:hover {
+  background: rgba(124, 106, 247, 0.45);
+  border-color: var(--accent);
+  transform: translateY(-1px);
+}
+
+.ai-code-content {
+  margin: 0;
+  padding: 10px 12px;
+  overflow-x: auto;
+  font-family: 'Consolas', 'Fira Code', 'Courier New', monospace;
+  font-size: 0.78rem;
+  line-height: 1.5;
+  color: #f1f5f9;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.ai-chip-btn-highlight {
+  border-color: rgba(124, 106, 247, 0.6);
+  background: rgba(124, 106, 247, 0.18);
+  color: #e0d8ff;
+  font-weight: 600;
+}
+
 /* Thinking Indicator */
 .ai-thinking-bubble {
   display: flex;
