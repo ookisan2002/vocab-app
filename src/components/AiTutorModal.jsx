@@ -253,6 +253,10 @@ export default function AiTutorModal({ currentWord }) {
     const newMessages = [...messages, userMsg];
     setMessages(newMessages);
     setInputText('');
+    if (inputRef.current) {
+      inputRef.current.style.height = '44px';
+      inputRef.current.style.overflowY = 'hidden';
+    }
     setChatError('');
     setIsSending(true);
 
@@ -305,11 +309,25 @@ export default function AiTutorModal({ currentWord }) {
     }
   };
 
+  // Auto-resize textarea when user types
+  const handleInputChange = (e) => {
+    setInputText(e.target.value);
+    const target = e.target;
+    target.style.height = 'auto';
+    const newHeight = Math.min(target.scrollHeight, 120);
+    target.style.height = `${Math.max(newHeight, 44)}px`;
+    target.style.overflowY = target.scrollHeight > 120 ? 'auto' : 'hidden';
+  };
+
   // Keyboard shortcut in chat input: Enter to send
   const handleKeyDown = (e) => {
     if (e.key === 'Enter' && !e.shiftKey) {
       e.preventDefault();
       handleSendMessage();
+      if (inputRef.current) {
+        inputRef.current.style.height = '44px';
+        inputRef.current.style.overflowY = 'hidden';
+      }
     }
   };
 
@@ -614,7 +632,6 @@ export default function AiTutorModal({ currentWord }) {
                 <div className="ai-input-bar">
                   <textarea
                     ref={inputRef}
-                    rows="1"
                     className="ai-chat-input"
                     placeholder={
                       wordText
@@ -622,7 +639,7 @@ export default function AiTutorModal({ currentWord }) {
                         : 'Nhập câu hỏi để cùng luyện tập IELTS...'
                     }
                     value={inputText}
-                    onChange={(e) => setInputText(e.target.value)}
+                    onChange={handleInputChange}
                     onKeyDown={handleKeyDown}
                     disabled={isSending}
                   />
