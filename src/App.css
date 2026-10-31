@@ -1177,6 +1177,43 @@ body {
   border-radius: 16px 16px 16px 4px;
 }
 
+/* Security Guardrail Styles */
+.ai-bubble-blocked {
+  background: linear-gradient(135deg, rgba(245, 166, 35, 0.08) 0%, rgba(35, 38, 54, 0.95) 100%) !important;
+  border: 1px solid rgba(245, 166, 35, 0.45) !important;
+  box-shadow: 0 4px 18px rgba(245, 166, 35, 0.12);
+}
+
+.ai-avatar-blocked {
+  background: rgba(245, 166, 35, 0.15) !important;
+  border-color: rgba(245, 166, 35, 0.5) !important;
+  box-shadow: 0 0 10px rgba(245, 166, 35, 0.25);
+  font-size: 0.9rem;
+}
+
+.ai-security-shield-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  background: rgba(245, 166, 35, 0.14);
+  border: 1px solid rgba(245, 166, 35, 0.35);
+  border-radius: 6px;
+  padding: 3px 8px;
+  margin-bottom: 8px;
+}
+
+.ai-security-shield-icon {
+  font-size: 0.85rem;
+}
+
+.ai-security-shield-title {
+  font-size: 0.72rem;
+  font-weight: 700;
+  color: #f5c842;
+  letter-spacing: 0.02em;
+  text-transform: uppercase;
+}
+
 .ai-bubble-time {
   display: block;
   font-size: 0.65rem;

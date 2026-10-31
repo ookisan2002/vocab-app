@@ -5,6 +5,7 @@ import {
   testApiKey,
   sendChatMessage,
 } from '../services/geminiService';
+import { SECURITY_BLOCKED_MESSAGE } from '../utils/securityGuard';
 
 /**
  * Helper to safely format inline markdown (code, bold, italic)
@@ -262,10 +263,15 @@ export default function AiTutorModal({ currentWord }) {
 
     try {
       const reply = await sendChatMessage(apiKey, newMessages, currentWord);
+      const isSecurityBlocked =
+        reply === SECURITY_BLOCKED_MESSAGE ||
+        (typeof reply === 'string' && reply.startsWith('🛡️'));
+
       const assistantMsg = {
         id: (Date.now() + 1).toString(),
         role: 'assistant',
         content: reply,
+        isSecurityBlocked,
         timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
       };
       setMessages([...newMessages, assistantMsg]);
@@ -529,22 +535,44 @@ export default function AiTutorModal({ currentWord }) {
                       </p>
                     </div>
                   ) : (
-                    messages.map((msg) => (
-                      <div
-                        key={msg.id}
-                        className={`ai-message-row ${msg.role === 'user' ? 'ai-user-row' : 'ai-assistant-row'}`}
-                      >
-                        {msg.role === 'assistant' && <div className="ai-bubble-avatar">🤖</div>}
-                        <div className={`ai-bubble ${msg.role === 'user' ? 'ai-bubble-user' : 'ai-bubble-assistant'}`}>
-                          {msg.role === 'assistant' ? (
-                            <FormattedMessage content={msg.content} />
-                          ) : (
-                            <p className="ai-user-text">{msg.content}</p>
+                    messages.map((msg) => {
+                      const isSecurityAlert =
+                        msg.isSecurityBlocked ||
+                        msg.content === SECURITY_BLOCKED_MESSAGE ||
+                        (typeof msg.content === 'string' && msg.content.startsWith('🛡️'));
+
+                      return (
+                        <div
+                          key={msg.id}
+                          className={`ai-message-row ${msg.role === 'user' ? 'ai-user-row' : 'ai-assistant-row'} ${isSecurityAlert ? 'ai-row-blocked' : ''}`}
+                        >
+                          {msg.role === 'assistant' && (
+                            <div
+                              className={`ai-bubble-avatar ${isSecurityAlert ? 'ai-avatar-blocked' : ''}`}
+                              title={isSecurityAlert ? 'Lá chắn An toàn & Bảo mật' : 'IELTS AI Tutor'}
+                            >
+                              {isSecurityAlert ? '🛡️' : '🤖'}
+                            </div>
                           )}
-                          <span className="ai-bubble-time">{msg.timestamp}</span>
+                          <div
+                            className={`ai-bubble ${msg.role === 'user' ? 'ai-bubble-user' : 'ai-bubble-assistant'} ${isSecurityAlert ? 'ai-bubble-blocked' : ''}`}
+                          >
+                            {isSecurityAlert && (
+                              <div className="ai-security-shield-badge">
+                                <span className="ai-security-shield-icon">🛡️</span>
+                                <span className="ai-security-shield-title">Lá chắn An toàn & Bảo mật</span>
+                              </div>
+                            )}
+                            {msg.role === 'assistant' ? (
+                              <FormattedMessage content={msg.content} />
+                            ) : (
+                              <p className="ai-user-text">{msg.content}</p>
+                            )}
+                            <span className="ai-bubble-time">{msg.timestamp}</span>
+                          </div>
                         </div>
-                      </div>
-                    ))
+                      );
+                    })
                   )}
 
                   {/* Thinking Indicator */}
