@@ -34,13 +34,53 @@ export const CANDIDATE_CONFIGS = [
 export const CANDIDATE_MODELS = CANDIDATE_CONFIGS.map(c => c.model);
 
 /**
+ * Filter out models that are not designed for general text/chat completion
+ */
+export function isUnsupportedChatModel(name) {
+  const lower = (name || '').toLowerCase();
+  return (
+    lower.includes('image') ||
+    lower.includes('vision') ||
+    lower.includes('imagen') ||
+    lower.includes('embedding') ||
+    lower.includes('aqa') ||
+    lower.includes('audio') ||
+    lower.includes('tts') ||
+    lower.includes('whisper') ||
+    lower.includes('realtime')
+  );
+}
+
+/**
+ * Prioritization scoring for Gemini chat models.
+ * Higher score means the model will be prioritized and tested first.
+ */
+export function getModelScore(modelName, apiVersion) {
+  const m = (modelName || '').toLowerCase();
+  if (m === 'gemini-1.5-flash' && apiVersion === 'v1') return 100;
+  if (m === 'gemini-1.5-flash' && apiVersion === 'v1beta') return 95;
+  if (m === 'gemini-2.0-flash') return 90;
+  if (m === 'gemini-1.5-flash-002') return 85;
+  if (m === 'gemini-1.5-flash-001') return 80;
+  if (m === 'gemini-1.5-flash-8b') return 75;
+  if (m === 'gemini-2.0-flash-exp') return 70;
+  if (m.includes('1.5-flash')) return 65;
+  if (m.includes('2.0-flash')) return 60;
+  if (m.includes('1.5-pro')) return 50;
+  if (m.includes('flash-lite')) return 40;
+  if (m.includes('2.5-flash')) return 35;
+  if (m.includes('flash')) return 30;
+  return 10;
+}
+
+/**
  * Get active model & apiVersion config from localStorage
  */
 export function getActiveConfig() {
   try {
     const model = localStorage.getItem(ACTIVE_MODEL_STORAGE_KEY);
     const apiVersion = localStorage.getItem(ACTIVE_VERSION_STORAGE_KEY);
-    if (model && model !== 'gemini-2.5-flash') {
+    if (model && model !== 'gemini-2.5-flash' && !isUnsupportedChatModel(model)) {
       if (apiVersion) {
         return { model, apiVersion };
       }
@@ -221,6 +261,10 @@ export async function testApiKey(apiKey) {
 
   const cleanKey = apiKey.trim();
 
+  let lastError = null;
+  let lastQuotaError = null;
+  let last404Error = null;
+
   // Step 1: Dynamic Discovery
   const discoveryVersions = ['v1', 'v1beta'];
   const discoveredCandidates = [];
@@ -243,7 +287,7 @@ export async function testApiKey(apiKey) {
         );
         for (const m of supported) {
           const cleanName = (m.name || '').replace(/^models\//, '');
-          if (cleanName && !cleanName.includes('embedding') && !cleanName.includes('aqa')) {
+          if (cleanName && !isUnsupportedChatModel(cleanName)) {
             if (!discoveredCandidates.some(c => c.model === cleanName && c.apiVersion === version)) {
               discoveredCandidates.push({ model: cleanName, apiVersion: version });
             }
@@ -253,7 +297,7 @@ export async function testApiKey(apiKey) {
         const errorData = await listRes.json().catch(() => ({}));
         const rawMsg = errorData?.error?.message || listRes.statusText;
 
-        // Fail fast on universal auth / quota errors
+        // Fail fast on universal auth / permission errors
         if (
           listRes.status === 400 ||
           rawMsg.toLowerCase().includes('api key') ||
@@ -266,7 +310,8 @@ export async function testApiKey(apiKey) {
           rawMsg.toLowerCase().includes('quota') ||
           rawMsg.toLowerCase().includes('resource_exhausted')
         ) {
-          throw new Error('API Key đã hết hạn mức (Quota exceeded) hoặc gửi yêu cầu quá nhanh. Vui lòng thử lại sau.');
+          console.warn(`[GeminiService] GET /models trên ${version} trả về 429 Quota/Rate Limit.`);
+          lastQuotaError = new Error('API Key đã hết hạn mức (Quota exceeded) hoặc gửi yêu cầu quá nhanh. Vui lòng thử lại sau.');
         }
         if (listRes.status === 403) {
           throw new Error('Không có quyền truy cập Gemini API (403 Forbidden). Hãy chắc chắn bạn đã kích hoạt API trên Google AI Studio.');
@@ -279,7 +324,6 @@ export async function testApiKey(apiKey) {
       if (
         err.message &&
         (err.message.includes('API Key không hợp lệ') ||
-          err.message.includes('Quota') ||
           err.message.includes('403'))
       ) {
         throw err;
@@ -289,39 +333,9 @@ export async function testApiKey(apiKey) {
   }
 
   // Prioritize discovered candidates
-  const PRIORITY_NAMES = [
-    'gemini-1.5-flash',
-    'gemini-2.0-flash',
-    'gemini-1.5-flash-002',
-    'gemini-1.5-flash-001',
-    'gemini-2.0-flash-exp',
-    'gemini-1.5-flash-8b',
-    'gemini-1.5-pro',
-  ];
-
-  discoveredCandidates.sort((a, b) => {
-    // 1. Match CANDIDATE_CONFIGS priority
-    const cfgA = CANDIDATE_CONFIGS.findIndex(c => c.model === a.model && c.apiVersion === a.apiVersion);
-    const cfgB = CANDIDATE_CONFIGS.findIndex(c => c.model === b.model && c.apiVersion === b.apiVersion);
-    if (cfgA !== -1 && cfgB !== -1) return cfgA - cfgB;
-    if (cfgA !== -1) return -1;
-    if (cfgB !== -1) return 1;
-
-    // 2. Match PRIORITY_NAMES priority
-    const pA = PRIORITY_NAMES.indexOf(a.model);
-    const pB = PRIORITY_NAMES.indexOf(b.model);
-    if (pA !== -1 && pB !== -1) return pA - pB;
-    if (pA !== -1) return -1;
-    if (pB !== -1) return 1;
-
-    // 3. Flash models before other models
-    const aFlash = a.model.includes('flash');
-    const bFlash = b.model.includes('flash');
-    if (aFlash && !bFlash) return -1;
-    if (!aFlash && bFlash) return 1;
-
-    return 0;
-  });
+  discoveredCandidates.sort(
+    (a, b) => getModelScore(b.model, b.apiVersion) - getModelScore(a.model, a.apiVersion)
+  );
 
   // Test discovered candidates one by one
   for (const cand of discoveredCandidates) {
@@ -341,6 +355,7 @@ export async function testApiKey(apiKey) {
       const errorData = await testRes.json().catch(() => ({}));
       const rawMsg = errorData?.error?.message || testRes.statusText;
 
+      // Fail fast on universal auth / permission errors
       if (
         testRes.status === 400 ||
         rawMsg.toLowerCase().includes('api key') ||
@@ -348,18 +363,34 @@ export async function testApiKey(apiKey) {
       ) {
         throw new Error('API Key không hợp lệ. Vui lòng kiểm tra lại key bạn lấy từ Google AI Studio.');
       }
+      if (testRes.status === 403) {
+        throw new Error('Không có quyền truy cập Gemini API (403 Forbidden). Hãy chắc chắn bạn đã kích hoạt API trên Google AI Studio.');
+      }
+
+      // Handle 429 Quota / Rate Limit without aborting the loop
       if (
         testRes.status === 429 ||
         rawMsg.toLowerCase().includes('quota') ||
         rawMsg.toLowerCase().includes('resource_exhausted')
       ) {
-        throw new Error('API Key đã hết hạn mức (Quota exceeded) hoặc gửi yêu cầu quá nhanh. Vui lòng thử lại sau.');
+        console.warn(`[GeminiService] Model ${cand.model} (${cand.apiVersion}) trả về 429 Quota/Rate Limit. Đang thử model kế tiếp...`);
+        lastQuotaError = new Error('API Key đã hết hạn mức (Quota exceeded) hoặc gửi yêu cầu quá nhanh. Vui lòng thử lại sau.');
+        continue;
       }
-      if (testRes.status === 403) {
-        throw new Error('Không có quyền truy cập Gemini API (403 Forbidden). Hãy chắc chắn bạn đã kích hoạt API trên Google AI Studio.');
+
+      // Handle 404 / unsupported generateContent
+      if (
+        testRes.status === 404 ||
+        rawMsg.toLowerCase().includes('not found') ||
+        rawMsg.toLowerCase().includes('is not supported for generatecontent')
+      ) {
+        console.warn(`[GeminiService] Model ${cand.model} (${cand.apiVersion}) không khả dụng (404). Đang thử model kế tiếp...`);
+        last404Error = new Error(`Model ${cand.model} (${cand.apiVersion}) không tồn tại (404).`);
+        continue;
       }
 
       console.warn(`[GeminiService] Model được phát hiện ${cand.model} (${cand.apiVersion}) không khả dụng (${testRes.status}): ${rawMsg}`);
+      lastError = new Error(`Kết nối thất bại (${testRes.status}): ${rawMsg}`);
     } catch (err) {
       if (err.name === 'TypeError' && err.message.includes('fetch')) {
         throw new Error('Không thể kết nối đến Google Gemini. Vui lòng kiểm tra lại đường truyền mạng internet.');
@@ -367,16 +398,15 @@ export async function testApiKey(apiKey) {
       if (
         err.message &&
         (err.message.includes('API Key không hợp lệ') ||
-          err.message.includes('Quota') ||
           err.message.includes('403'))
       ) {
         throw err;
       }
+      console.warn(`[GeminiService] Lỗi khi kiểm tra model ${cand.model} (${cand.apiVersion}):`, err);
     }
   }
 
   // Step 2: Fallback - test CANDIDATE_CONFIGS in sequence
-  let lastError = null;
   for (const { model, apiVersion } of CANDIDATE_CONFIGS) {
     try {
       const testRes = await testModelGenerateContent(cleanKey, model, apiVersion);
@@ -389,6 +419,7 @@ export async function testApiKey(apiKey) {
       const errorData = await testRes.json().catch(() => ({}));
       const rawMsg = errorData?.error?.message || testRes.statusText;
 
+      // Fail fast on universal auth / permission errors
       if (
         testRes.status === 400 ||
         rawMsg.toLowerCase().includes('api key') ||
@@ -396,24 +427,29 @@ export async function testApiKey(apiKey) {
       ) {
         throw new Error('API Key không hợp lệ. Vui lòng kiểm tra lại key bạn lấy từ Google AI Studio.');
       }
+      if (testRes.status === 403) {
+        throw new Error('Không có quyền truy cập Gemini API (403 Forbidden). Hãy chắc chắn bạn đã kích hoạt API trên Google AI Studio.');
+      }
+
+      // Handle 429 Quota / Rate Limit without aborting the loop
       if (
         testRes.status === 429 ||
         rawMsg.toLowerCase().includes('quota') ||
         rawMsg.toLowerCase().includes('resource_exhausted')
       ) {
-        throw new Error('API Key đã hết hạn mức (Quota exceeded) hoặc gửi yêu cầu quá nhanh. Vui lòng thử lại sau.');
-      }
-      if (testRes.status === 403) {
-        throw new Error('Không có quyền truy cập Gemini API (403 Forbidden). Hãy chắc chắn bạn đã kích hoạt API trên Google AI Studio.');
+        console.warn(`[GeminiService] Model ${model} (${apiVersion}) trả về 429 Quota/Rate Limit. Đang thử model kế tiếp...`);
+        lastQuotaError = new Error('API Key đã hết hạn mức (Quota exceeded) hoặc gửi yêu cầu quá nhanh. Vui lòng thử lại sau.');
+        continue;
       }
 
+      // Handle 404 / unsupported generateContent
       if (
         testRes.status === 404 ||
         rawMsg.toLowerCase().includes('not found') ||
         rawMsg.toLowerCase().includes('is not supported for generatecontent')
       ) {
         console.warn(`[GeminiService] Model ${model} (${apiVersion}) không khả dụng (404). Đang thử model tiếp theo...`);
-        lastError = new Error(`Model ${model} (${apiVersion}) không tồn tại (404).`);
+        last404Error = new Error(`Model ${model} (${apiVersion}) không tồn tại (404).`);
         continue;
       }
 
@@ -425,7 +461,6 @@ export async function testApiKey(apiKey) {
       if (
         err.message &&
         (err.message.includes('API Key không hợp lệ') ||
-          err.message.includes('Quota') ||
           err.message.includes('403'))
       ) {
         throw err;
@@ -434,7 +469,7 @@ export async function testApiKey(apiKey) {
     }
   }
 
-  throw lastError || new Error('Không tìm thấy model AI phù hợp trên tài khoản này (404). Vui lòng kiểm tra lại API Key.');
+  throw lastQuotaError || last404Error || lastError || new Error('Không tìm thấy model AI phù hợp trên tài khoản này (404). Vui lòng kiểm tra lại API Key.');
 }
 
 /**
@@ -549,6 +584,8 @@ ${PROJECT_KNOWLEDGE}${wordContext}`;
   ];
 
   let lastError = null;
+  let lastQuotaError = null;
+  let last404Error = null;
 
   for (let i = 0; i < candidateQueue.length; i++) {
     const { model, apiVersion } = candidateQueue[i];
@@ -574,13 +611,21 @@ ${PROJECT_KNOWLEDGE}${wordContext}`;
           rawMsg.toLowerCase().includes('is not supported for generatecontent')
         ) {
           console.warn(`[GeminiService] Model ${model} (${apiVersion}) trả về 404 (${rawMsg}). Tự động chuyển model kế tiếp...`);
-          lastError = new Error(`Model ${model} (${apiVersion}) không tồn tại (404).`);
+          last404Error = new Error(`Model ${model} (${apiVersion}) không tồn tại (404).`);
           continue;
         }
 
-        if (response.status === 429 || rawMsg.toLowerCase().includes('quota') || rawMsg.toLowerCase().includes('resource_exhausted')) {
-          throw new Error('Bạn đã gửi yêu cầu quá nhanh hoặc hết quota miễn phí của Gemini API. Vui lòng chờ 1 phút rồi thử lại.');
+        // If 429 Quota / Rate limit, also switch smoothly to next candidate
+        if (
+          response.status === 429 ||
+          rawMsg.toLowerCase().includes('quota') ||
+          rawMsg.toLowerCase().includes('resource_exhausted')
+        ) {
+          console.warn(`[GeminiService] Model ${model} (${apiVersion}) trả về 429 Quota/Rate Limit (${rawMsg}). Tự động chuyển model kế tiếp...`);
+          lastQuotaError = new Error('Bạn đã gửi yêu cầu quá nhanh hoặc hết quota miễn phí của Gemini API. Vui lòng chờ 1 phút rồi thử lại.');
+          continue;
         }
+
         if (response.status === 400 && rawMsg.toLowerCase().includes('api key')) {
           throw new Error('API Key không hợp lệ hoặc đã bị vô hiệu hóa. Vui lòng kiểm tra lại trong phần Cài đặt API Key.');
         }
@@ -609,15 +654,23 @@ ${PROJECT_KNOWLEDGE}${wordContext}`;
       const sanitizedReply = sanitizeAiOutput(replyText, cleanKey);
       return sanitizedReply;
     } catch (error) {
-      if (error.message && error.message.includes('(404)') && i < candidateQueue.length - 1) {
-        continue;
-      }
       if (error.name === 'TypeError' && error.message.includes('fetch')) {
         throw new Error('Không thể kết nối internet. Vui lòng kiểm tra lại mạng.');
       }
-      throw error;
+      if (
+        error.message &&
+        (error.message.includes('API Key không hợp lệ') ||
+          error.message.includes('bị ngắt quãng'))
+      ) {
+        throw error;
+      }
+      lastError = error;
+      if (i < candidateQueue.length - 1) {
+        continue;
+      }
+      throw lastQuotaError || last404Error || lastError;
     }
   }
 
-  throw lastError || new Error('Không tìm thấy model AI phù hợp (404). Vui lòng thử lại với API Key khác.');
+  throw lastQuotaError || last404Error || lastError || new Error('Không tìm thấy model AI phù hợp (404). Vui lòng thử lại với API Key khác.');
 }
