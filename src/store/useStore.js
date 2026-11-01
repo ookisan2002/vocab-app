@@ -6,6 +6,8 @@ import {
   saveApiKey,
   loadStoredChatHistory,
   saveStoredChatHistory,
+  getActiveConfig,
+  setActiveConfig,
 } from '../services/geminiService';
 
 const LOCAL_KEY = 'vocab_progress_local';
@@ -53,15 +55,27 @@ export const useStore = create((set, get) => ({
 
   // ─── AI Tutor & Gemini ──────────────────────────────
   geminiApiKey: getStoredApiKey(),
+  geminiModelConfig: getActiveConfig(),
   aiChatHistory: loadStoredChatHistory(),
+
+  setGeminiModelConfig: (config) => {
+    if (config?.model) {
+      setActiveConfig(config.model, config.apiVersion || 'v1');
+    }
+    set({ geminiModelConfig: config });
+    const { firestoreSave, progress, customWords, geminiApiKey, aiChatHistory, user } = get();
+    if (user && firestoreSave) {
+      firestoreSave(progress, customWords, geminiApiKey, aiChatHistory, config);
+    }
+  },
 
   setGeminiApiKey: (key) => {
     const cleanKey = (key || '').trim();
     saveApiKey(cleanKey);
     set({ geminiApiKey: cleanKey });
-    const { firestoreSave, progress, customWords, aiChatHistory, user } = get();
+    const { firestoreSave, progress, customWords, aiChatHistory, geminiModelConfig, user } = get();
     if (user && firestoreSave) {
-      firestoreSave(progress, customWords, cleanKey, aiChatHistory);
+      firestoreSave(progress, customWords, cleanKey, aiChatHistory, geminiModelConfig);
     }
   },
 
@@ -248,7 +262,7 @@ export const useStore = create((set, get) => ({
 
   loadFromFirestore: (data) => {
     if (!data) return;
-    const { progress, customWords, geminiApiKey, aiChatHistory } = data;
+    const { progress, customWords, geminiApiKey, aiChatHistory, geminiModelConfig } = data;
     if (progress) {
       saveLocalProgress(progress);
     }
@@ -266,6 +280,10 @@ export const useStore = create((set, get) => ({
     if (Array.isArray(aiChatHistory)) {
       saveStoredChatHistory(aiChatHistory);
       updates.aiChatHistory = aiChatHistory;
+    }
+    if (geminiModelConfig?.model) {
+      setActiveConfig(geminiModelConfig.model, geminiModelConfig.apiVersion || 'v1');
+      updates.geminiModelConfig = geminiModelConfig;
     }
     set(updates);
   },

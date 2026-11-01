@@ -1,12 +1,12 @@
 /**
  * Service handling Google Gemini API integration for IELTS AI Tutor
  */
-import { PROJECT_KNOWLEDGE } from '../data/projectKnowledge';
+import { PROJECT_KNOWLEDGE } from '../data/projectKnowledge.js';
 import {
   containsSensitiveQuery,
   sanitizeAiOutput,
   SECURITY_BLOCKED_MESSAGE,
-} from '../utils/securityGuard';
+} from '../utils/securityGuard.js';
 
 export const GEMINI_STORAGE_KEY = 'vocab_gemini_api_key';
 export const CHAT_HISTORY_STORAGE_KEY = 'vocab_ai_chat_history';
@@ -243,6 +243,45 @@ export async function testModelGenerateContent(cleanKey, model, apiVersion = 'v1
       ],
     }),
   });
+}
+
+/**
+ * Helper to build generateContent payload according to Google API version rules:
+ * - v1: REST API does NOT accept top-level systemInstruction (returns 400 Unknown field).
+ *       Prepend the system instruction into the FIRST user turn in contents.
+ * - v1beta: REST API accepts system_instruction (snake_case).
+ */
+export function buildPayloadForVersion(formattedContents, systemInstructionText, apiVersion = 'v1') {
+  if (apiVersion === 'v1') {
+    const clonedContents = formattedContents.map((c, idx) => {
+      if (idx === 0 && c.role === 'user') {
+        const text = c.parts?.[0]?.text || '';
+        return {
+          role: 'user',
+          parts: [{ text: `${systemInstructionText}\n\n---\n\n${text}` }],
+        };
+      }
+      return c;
+    });
+    return {
+      contents: clonedContents,
+      generationConfig: {
+        temperature: 0.7,
+        maxOutputTokens: 1200,
+      },
+    };
+  }
+
+  return {
+    system_instruction: {
+      parts: [{ text: systemInstructionText }],
+    },
+    contents: formattedContents,
+    generationConfig: {
+      temperature: 0.7,
+      maxOutputTokens: 1200,
+    },
+  };
 }
 
 /**
@@ -563,17 +602,6 @@ ${PROJECT_KNOWLEDGE}${wordContext}`;
     throw new Error('Nội dung tin nhắn trống.');
   }
 
-  const payload = {
-    systemInstruction: {
-      parts: [{ text: systemInstructionText }],
-    },
-    contents: formattedContents,
-    generationConfig: {
-      temperature: 0.7,
-      maxOutputTokens: 1200,
-    },
-  };
-
   // Build candidate queue starting with active config, followed by remaining candidate configs
   const activeConfig = getActiveConfig();
   const candidateQueue = [
@@ -590,6 +618,7 @@ ${PROJECT_KNOWLEDGE}${wordContext}`;
   for (let i = 0; i < candidateQueue.length; i++) {
     const { model, apiVersion } = candidateQueue[i];
     const url = `https://generativelanguage.googleapis.com/${apiVersion}/models/${encodeURIComponent(model)}:generateContent?key=${encodeURIComponent(cleanKey)}`;
+    const payload = buildPayloadForVersion(formattedContents, systemInstructionText, apiVersion);
 
     try {
       const response = await fetch(url, {

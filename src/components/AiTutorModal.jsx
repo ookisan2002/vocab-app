@@ -3,6 +3,8 @@ import { useStore } from '../store/useStore';
 import {
   getStoredApiKey,
   getActiveModel,
+  getActiveConfig,
+  setActiveConfig,
   testApiKey,
   sendChatMessage,
 } from '../services/geminiService';
@@ -171,6 +173,8 @@ export default function AiTutorModal({ currentWord }) {
   const user = useStore(s => s.user);
   const geminiApiKey = useStore(s => s.geminiApiKey);
   const setGeminiApiKey = useStore(s => s.setGeminiApiKey);
+  const geminiModelConfig = useStore(s => s.geminiModelConfig);
+  const setGeminiModelConfig = useStore(s => s.setGeminiModelConfig);
   const aiChatHistory = useStore(s => s.aiChatHistory);
   const setAiChatHistory = useStore(s => s.setAiChatHistory);
 
@@ -248,7 +252,15 @@ export default function AiTutorModal({ currentWord }) {
       const cleanKey = inputKey.trim();
       setApiKey(cleanKey);
       setGeminiApiKey(cleanKey);
-      const activeModelName = testRes?.model || getActiveModel() || 'Gemini Flash';
+
+      const workingConfig = {
+        model: testRes?.model || 'gemini-1.5-flash',
+        apiVersion: testRes?.apiVersion || 'v1',
+      };
+      setActiveConfig(workingConfig.model, workingConfig.apiVersion);
+      setGeminiModelConfig(workingConfig);
+
+      const activeModelName = workingConfig.model;
       setKeySuccess(`Kết nối thành công (${activeModelName})! Đang chuyển vào phòng học...`);
       setTimeout(() => {
         setIsConfiguringKey(false);
@@ -463,7 +475,7 @@ export default function AiTutorModal({ currentWord }) {
                 <div className="ai-config-icon">🔑</div>
                 <h4>Kết nối Google Gemini API</h4>
                 <p className="ai-config-desc">
-                  IELTS AI Tutor tự động kết nối mô hình <strong>Gemini Flash</strong> ({getActiveModel()}) siêu tốc và hoàn toàn <strong>miễn phí</strong> từ Google.
+                  IELTS AI Tutor tự động kết nối mô hình <strong>Gemini Flash</strong> ({geminiModelConfig?.model || getActiveModel()}) siêu tốc và hoàn toàn <strong>miễn phí</strong> từ Google.
                 </p>
 
                 {user && (apiKey || geminiApiKey) && (
@@ -571,6 +583,7 @@ export default function AiTutorModal({ currentWord }) {
                             setApiKey('');
                             setInputKey('');
                             setGeminiApiKey('');
+                            setGeminiModelConfig(null);
                             setIsConfiguringKey(true);
                           }
                         }}

@@ -14,7 +14,7 @@ import {
 } from 'firebase/firestore';
 import { auth, db, googleProvider } from '../firebase';
 import { useStore } from '../store/useStore';
-import { getStoredApiKey, loadStoredChatHistory } from '../services/geminiService';
+import { getStoredApiKey, loadStoredChatHistory, getActiveConfig } from '../services/geminiService';
 
 export function useAuth() {
   const { setUser, loadFromFirestore, setFirestoreSave } = useStore();
@@ -24,7 +24,7 @@ export function useAuth() {
   const unsubscribeSnapshot = useRef(null);
 
   // Firestore save function
-  const saveToFirestore = async (customProgress, customWordsList, customApiKey, customHistory) => {
+  const saveToFirestore = async (customProgress, customWordsList, customApiKey, customHistory, customModelConfig) => {
     const user = auth.currentUser;
     if (!user) return;
     setSyncStatus('syncing');
@@ -34,12 +34,14 @@ export function useAuth() {
       const customWords = customWordsList !== undefined ? customWordsList : store.customWords;
       const geminiApiKey = customApiKey !== undefined ? customApiKey : (store.geminiApiKey || '');
       const aiChatHistory = customHistory !== undefined ? customHistory : (store.aiChatHistory || []);
+      const geminiModelConfig = customModelConfig !== undefined ? customModelConfig : (store.geminiModelConfig || getActiveConfig());
 
       await setDoc(doc(db, 'users', user.uid), {
         progress: progress || {},
         customWords: customWords || [],
         geminiApiKey: geminiApiKey || '',
         aiChatHistory: Array.isArray(aiChatHistory) ? aiChatHistory.slice(-30) : [],
+        geminiModelConfig: geminiModelConfig || null,
         updatedAt: Date.now(),
       }, { merge: true });
       setSyncStatus('synced');
@@ -77,23 +79,34 @@ export function useAuth() {
           const snap = await getDoc(docRef);
           const localKey = (useStore.getState().geminiApiKey || getStoredApiKey() || '').trim();
           const localChat = useStore.getState().aiChatHistory || loadStoredChatHistory() || [];
+          const localModelConfig = useStore.getState().geminiModelConfig || getActiveConfig();
 
           if (snap.exists()) {
             const data = snap.data();
             const remoteKey = (data?.geminiApiKey || '').trim();
 
             if (!remoteKey && localKey) {
-              // Local has key, Firestore does not: sync local key to Firestore
+              // Local has key, Firestore does not: sync local key and modelConfig to Firestore
               loadFromFirestore(data);
               await saveToFirestore(
                 data.progress || useStore.getState().progress,
                 data.customWords || useStore.getState().customWords,
                 localKey,
-                (Array.isArray(data.aiChatHistory) && data.aiChatHistory.length > 0) ? data.aiChatHistory : localChat
+                (Array.isArray(data.aiChatHistory) && data.aiChatHistory.length > 0) ? data.aiChatHistory : localChat,
+                data.geminiModelConfig || localModelConfig
               );
             } else {
               // Firestore has key (or neither has key): update local from Firestore
               loadFromFirestore(data);
+              if (!data.geminiModelConfig && localModelConfig?.model) {
+                await saveToFirestore(
+                  data.progress || useStore.getState().progress,
+                  data.customWords || useStore.getState().customWords,
+                  remoteKey || localKey,
+                  data.aiChatHistory || localChat,
+                  localModelConfig
+                );
+              }
             }
           } else {
             // New user document: sync current local data up to Firestore
@@ -101,7 +114,8 @@ export function useAuth() {
               useStore.getState().progress,
               useStore.getState().customWords,
               localKey,
-              localChat
+              localChat,
+              localModelConfig
             );
           }
           setSyncStatus('synced');
