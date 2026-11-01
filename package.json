@@ -10,8 +10,11 @@
     "preview": "vite preview"
   },
   "dependencies": {
+    "@ant-design/icons": "^6.3.4",
+    "antd": "^6.6.8",
     "firebase": "^13.1.0",
     "papaparse": "^5.7.0",
+    "rc-virtual-list": "^3.19.2",
     "react": "^19.3.1",
     "react-dom": "^19.3.1",
     "zustand": "^5.0.16"

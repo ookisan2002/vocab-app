@@ -7,46 +7,61 @@ import { generateQuizQuestion, INTERLEAVE_MODES } from '../utils/srs';
  * Returns: { currentCard, advance }
  * currentCard: { type: 'learn' | 'quiz', word, question? }
  */
-export function useLearningEngine(pinnedWordId = null) {
+export function useLearningEngine(_pinnedWordId = null) {
   const getAllWords = useStore(s => s.getAllWords);
-  const progress = useStore(s => s.progress);
   const topicFilter = useStore(s => s.topicFilter);
-  const interleaveMode = useStore(s => s.interleaveMode);
+  const customWords = useStore(s => s.customWords);
+  const editedWords = useStore(s => s.editedWords);
+  const deletedWordIds = useStore(s => s.deletedWordIds);
 
   const filteredWords = useMemo(() => {
+    // Depend on customWords, editedWords, deletedWordIds to re-evaluate when word list changes
+    void customWords;
+    void editedWords;
+    void deletedWordIds;
     return getAllWords().filter(w =>
       topicFilter === 'all' || w.topic === topicFilter
     );
-  }, [getAllWords, progress, topicFilter]);
+  }, [getAllWords, topicFilter, customWords, editedWords, deletedWordIds]);
 
   const getNextCard = useCallback((cardsSinceLastQuiz = 0, forcedWordId = null) => {
+    const state = useStore.getState();
+    const progress = state.progress || {};
+    const currentTopicFilter = state.topicFilter;
+    const currentInterleaveMode = state.interleaveMode;
+    const allWords = state.getAllWords();
+
+    const currentFilteredWords = allWords.filter(w =>
+      currentTopicFilter === 'all' || w.topic === currentTopicFilter
+    );
+
     if (forcedWordId) {
-      const word = filteredWords.find(w => w.id === forcedWordId);
+      const word = currentFilteredWords.find(w => w.id === forcedWordId);
       if (!word) return null;
       const ws = progress[word.id];
       if (ws?.status === 'learning') {
         // Show as quiz
         const direction = (ws.correctStreak || 0) === 0 ? 'en->vi' : 'vi->en';
-        const question = generateQuizQuestion(word, filteredWords, direction);
+        const question = generateQuizQuestion(word, currentFilteredWords, direction);
         return { type: 'quiz', word, question };
       }
       return { type: 'learn', word };
     }
 
-    const unseen = filteredWords.filter(w => {
+    const unseen = currentFilteredWords.filter(w => {
       const ws = progress[w.id];
       return !ws || ws.status === 'unseen';
     });
-    const learning = filteredWords.filter(w => progress[w.id]?.status === 'learning');
+    const learning = currentFilteredWords.filter(w => progress[w.id]?.status === 'learning');
 
     // Determine quiz frequency
-    const mode = INTERLEAVE_MODES[interleaveMode] || INTERLEAVE_MODES.balanced;
+    const mode = INTERLEAVE_MODES[currentInterleaveMode] || INTERLEAVE_MODES.balanced;
     const [min, max] = mode.newPerQuiz;
     const threshold = min === 0 ? Infinity : min + Math.floor(Math.random() * (max - min + 1));
 
     // Show quiz if: we have learning words AND (quiz only mode OR enough cards shown)
     const shouldQuiz = learning.length > 0 && (
-      interleaveMode === 'quizOnly' || cardsSinceLastQuiz >= threshold
+      currentInterleaveMode === 'quizOnly' || cardsSinceLastQuiz >= threshold
     );
 
     if (shouldQuiz && learning.length > 0) {
@@ -54,7 +69,7 @@ export function useLearningEngine(pinnedWordId = null) {
       const word = learning[Math.floor(Math.random() * learning.length)];
       const ws = progress[word.id];
       const direction = (ws?.correctStreak || 0) === 0 ? 'en->vi' : 'vi->en';
-      const question = generateQuizQuestion(word, filteredWords, direction);
+      const question = generateQuizQuestion(word, currentFilteredWords, direction);
       return { type: 'quiz', word, question };
     }
 
@@ -68,12 +83,12 @@ export function useLearningEngine(pinnedWordId = null) {
       const word = learning[Math.floor(Math.random() * learning.length)];
       const ws = progress[word.id];
       const direction = (ws?.correctStreak || 0) === 0 ? 'en->vi' : 'vi->en';
-      const question = generateQuizQuestion(word, filteredWords, direction);
+      const question = generateQuizQuestion(word, currentFilteredWords, direction);
       return { type: 'quiz', word, question };
     }
 
     return null; // All mastered!
-  }, [filteredWords, progress, interleaveMode]);
+  }, []);
 
   return { getNextCard, filteredWords };
 }

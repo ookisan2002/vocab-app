@@ -1,12 +1,49 @@
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef, useMemo } from 'react';
+import {
+  Modal,
+  FloatButton,
+  Button,
+  Input,
+  Select,
+  Collapse,
+  Space,
+  Tag,
+  Badge,
+  Avatar,
+  Tooltip,
+  Popconfirm,
+  Typography,
+  Flex,
+  Alert,
+  Spin,
+  message as antMessage,
+} from 'antd';
+import {
+  RobotOutlined,
+  SendOutlined,
+  SettingOutlined,
+  DeleteOutlined,
+  CopyOutlined,
+  CheckOutlined,
+  SafetyCertificateOutlined,
+  CloudSyncOutlined,
+  RocketOutlined,
+  KeyOutlined,
+  PlusOutlined,
+  MessageOutlined,
+  MenuUnfoldOutlined,
+  MenuFoldOutlined,
+} from '@ant-design/icons';
+import VirtualList from 'rc-virtual-list';
 import { useStore } from '../store/useStore';
 import {
   getStoredApiKey,
   getActiveModel,
-  getActiveConfig,
   setActiveConfig,
   testApiKey,
   sendChatMessage,
+  CANDIDATE_CONFIGS,
+  formatSessionTitle,
 } from '../services/geminiService';
 import { SECURITY_BLOCKED_MESSAGE } from '../utils/securityGuard';
 
@@ -62,6 +99,7 @@ function CodeBlock({ code, language }) {
         document.body.removeChild(textArea);
       }
       setCopied(true);
+      antMessage.success('Đã sao chép khối mã!');
       setTimeout(() => setCopied(false), 2000);
     } catch (err) {
       console.error('Failed to copy text:', err);
@@ -69,19 +107,38 @@ function CodeBlock({ code, language }) {
   };
 
   return (
-    <div className="ai-code-block">
-      <div className="ai-code-header">
-        <span className="ai-code-lang">{language || 'text'}</span>
-        <button
-          type="button"
-          className="ai-copy-btn"
+    <div
+      style={{
+        margin: '10px 0',
+        borderRadius: 8,
+        overflow: 'hidden',
+        background: '#0d0d17',
+        border: '1px solid rgba(255, 255, 255, 0.12)',
+      }}
+    >
+      <Flex
+        justify="space-between"
+        align="center"
+        style={{
+          background: 'rgba(255, 255, 255, 0.05)',
+          padding: '4px 12px',
+          borderBottom: '1px solid rgba(255, 255, 255, 0.08)',
+        }}
+      >
+        <Typography.Text type="secondary" style={{ fontSize: 12, fontFamily: 'monospace' }}>
+          {language || 'text'}
+        </Typography.Text>
+        <Button
+          type="text"
+          size="small"
+          icon={copied ? <CheckOutlined style={{ color: '#52c41a' }} /> : <CopyOutlined />}
           onClick={handleCopy}
-          title="Sao chép toàn bộ khối mã"
+          style={{ fontSize: 12 }}
         >
-          {copied ? '✓ Đã chép!' : '📋 Copy'}
-        </button>
-      </div>
-      <pre className="ai-code-content">
+          {copied ? 'Đã chép' : 'Copy'}
+        </Button>
+      </Flex>
+      <pre style={{ margin: 0, padding: 12, overflowX: 'auto', fontSize: 13, color: '#e2e8f0', fontFamily: 'monospace' }}>
         <code>{code}</code>
       </pre>
     </div>
@@ -96,27 +153,27 @@ function renderTextLines(text, keyPrefix = '') {
   return lines.map((line, idx) => {
     const trimmed = line.trim();
     if (!trimmed) {
-      return <div key={`${keyPrefix}-blank-${idx}`} className="ai-blank-line" />;
+      return <div key={`${keyPrefix}-blank-${idx}`} style={{ height: 8 }} />;
     }
     if (trimmed.startsWith('- ') || trimmed.startsWith('* ')) {
       return (
-        <div key={`${keyPrefix}-bullet-${idx}`} className="ai-bullet-item">
-          <span className="ai-bullet-dot">•</span>
-          <span className="ai-bullet-text">{formatInline(trimmed.substring(2))}</span>
+        <div key={`${keyPrefix}-bullet-${idx}`} style={{ display: 'flex', gap: 6, margin: '2px 0' }}>
+          <span style={{ color: '#7c6af7' }}>•</span>
+          <span>{formatInline(trimmed.substring(2))}</span>
         </div>
       );
     }
     const numMatch = trimmed.match(/^(\d+)\.\s+(.*)/);
     if (numMatch) {
       return (
-        <div key={`${keyPrefix}-num-${idx}`} className="ai-numbered-item">
-          <span className="ai-number-prefix">{numMatch[1]}.</span>
-          <span className="ai-numbered-text">{formatInline(numMatch[2])}</span>
+        <div key={`${keyPrefix}-num-${idx}`} style={{ display: 'flex', gap: 6, margin: '2px 0' }}>
+          <span style={{ color: '#7c6af7', fontWeight: 600 }}>{numMatch[1]}.</span>
+          <span>{formatInline(numMatch[2])}</span>
         </div>
       );
     }
     return (
-      <p key={`${keyPrefix}-p-${idx}`} className="ai-paragraph">
+      <p key={`${keyPrefix}-p-${idx}`} style={{ margin: '4px 0', lineHeight: 1.6 }}>
         {formatInline(line)}
       </p>
     );
@@ -129,7 +186,6 @@ function renderTextLines(text, keyPrefix = '') {
 function FormattedMessage({ content }) {
   if (!content) return null;
 
-  // Split content by code blocks: ```[language]?\n[code]```
   const codeBlockRegex = /```([a-zA-Z0-9_-]*)\s*?(?:\r?\n)([\s\S]*?)```/g;
   const segments = [];
   let lastIndex = 0;
@@ -158,7 +214,7 @@ function FormattedMessage({ content }) {
   }
 
   return (
-    <div className="ai-formatted-content">
+    <div style={{ fontSize: '0.92rem', color: '#f1f5f9' }}>
       {segments.map((seg, sIdx) => {
         if (seg.type === 'code') {
           return <CodeBlock key={`code-${sIdx}`} code={seg.code} language={seg.language} />;
@@ -169,31 +225,41 @@ function FormattedMessage({ content }) {
   );
 }
 
+const EMPTY_ARRAY = [];
+const EMPTY_MESSAGES = [];
+
 export default function AiTutorModal({ currentWord }) {
   const user = useStore(s => s.user);
   const geminiApiKey = useStore(s => s.geminiApiKey);
   const setGeminiApiKey = useStore(s => s.setGeminiApiKey);
   const geminiModelConfig = useStore(s => s.geminiModelConfig);
   const setGeminiModelConfig = useStore(s => s.setGeminiModelConfig);
-  const aiChatHistory = useStore(s => s.aiChatHistory);
-  const setAiChatHistory = useStore(s => s.setAiChatHistory);
+  const chatSessions = useStore(s => s.chatSessions) || EMPTY_ARRAY;
+  const activeSessionId = useStore(s => s.activeSessionId);
+  const setActiveSessionId = useStore(s => s.setActiveSessionId);
+  const createChatSession = useStore(s => s.createChatSession);
+  const deleteChatSession = useStore(s => s.deleteChatSession);
+  const updateActiveSessionMessages = useStore(s => s.updateActiveSessionMessages);
 
   const [isOpen, setIsOpen] = useState(false);
   const [apiKey, setApiKey] = useState(() => geminiApiKey || getStoredApiKey() || '');
   const [isConfiguringKey, setIsConfiguringKey] = useState(() => !(geminiApiKey || getStoredApiKey()));
   const [inputKey, setInputKey] = useState(() => geminiApiKey || getStoredApiKey() || '');
-  const [showKeyPassword, setShowKeyPassword] = useState(false);
+  const [selectedModel, setSelectedModel] = useState(() => geminiModelConfig?.model || getActiveModel() || 'gemini-1.5-flash');
   const [isTestingKey, setIsTestingKey] = useState(false);
   const [keyError, setKeyError] = useState('');
   const [keySuccess, setKeySuccess] = useState('');
 
-  // Chat states
-  const [messages, setMessages] = useState(() => (Array.isArray(aiChatHistory) && aiChatHistory.length > 0 ? aiChatHistory : []));
+  // Sidebar & Chat states
+  const [isSidebarOpen, setIsSidebarOpen] = useState(true);
+  const [searchText, setSearchText] = useState('');
   const [inputText, setInputText] = useState('');
   const [isSending, setIsSending] = useState(false);
   const [chatError, setChatError] = useState('');
+  const [containerHeight, setContainerHeight] = useState(420);
 
-  const messagesEndRef = useRef(null);
+  const chatContainerRef = useRef(null);
+  const virtualListRef = useRef(null);
   const inputRef = useRef(null);
 
   // Extract word details
@@ -201,7 +267,7 @@ export default function AiTutorModal({ currentWord }) {
   const wordVi = typeof currentWord === 'object' ? currentWord?.vi : '';
   const wordTopic = typeof currentWord === 'object' ? currentWord?.topic : '';
 
-  // Synchronize when geminiApiKey is updated from store (e.g. Google login sync, Firestore real-time)
+  // Synchronize when geminiApiKey is updated from store
   useEffect(() => {
     if (geminiApiKey) {
       setApiKey(geminiApiKey);
@@ -212,32 +278,87 @@ export default function AiTutorModal({ currentWord }) {
     }
   }, [geminiApiKey]);
 
-  // Synchronize when aiChatHistory is updated from store
-  useEffect(() => {
-    if (Array.isArray(aiChatHistory)) {
-      setMessages(aiChatHistory);
-    }
-  }, [aiChatHistory]);
+  // Active session and messages
+  const activeSession = useMemo(() => {
+    if (!activeSessionId) return null;
+    return chatSessions.find(s => s.id === activeSessionId) || null;
+  }, [chatSessions, activeSessionId]);
 
-  // Auto-scroll chat to bottom
-  useEffect(() => {
-    if (isOpen && !isConfiguringKey) {
-      messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
-    }
-  }, [messages, isSending, isOpen, isConfiguringKey]);
+  const currentMessages = useMemo(() => {
+    return activeSession ? (activeSession.messages || EMPTY_MESSAGES) : EMPTY_MESSAGES;
+  }, [activeSession]);
 
-  // Focus input when chat opens
+  const displayMessages = useMemo(() => {
+    if (!isSending) return currentMessages;
+    return [
+      ...currentMessages,
+      { id: '__thinking__', role: 'thinking' },
+    ];
+  }, [currentMessages, isSending]);
+
+  // Filter sessions by search text (title or content)
+  const filteredSessions = useMemo(() => {
+    if (!searchText.trim()) return chatSessions;
+    const term = searchText.toLowerCase().trim();
+    return chatSessions.filter(session => {
+      const titleMatch = (session.title || '').toLowerCase().includes(term);
+      const messageMatch = (session.messages || []).some(m =>
+        (m.content || '').toLowerCase().includes(term)
+      );
+      return titleMatch || messageMatch;
+    });
+  }, [chatSessions, searchText]);
+
+  // Measure dynamic height for rc-virtual-list
+  useEffect(() => {
+    const el = chatContainerRef.current;
+    if (!el) return;
+
+    const updateHeight = () => {
+      if (el.clientHeight > 0) {
+        setContainerHeight(el.clientHeight);
+      }
+    };
+
+    updateHeight();
+
+    const ro = new ResizeObserver(() => {
+      updateHeight();
+    });
+    ro.observe(el);
+
+    return () => {
+      ro.disconnect();
+    };
+  }, [isOpen, isConfiguringKey, isSidebarOpen]);
+
+  // Auto-scroll chat to bottom on new message or session switch
+  useEffect(() => {
+    if (displayMessages.length > 0 && virtualListRef.current) {
+      const scroll = () => {
+        virtualListRef.current?.scrollTo({
+          index: displayMessages.length - 1,
+          align: 'bottom',
+        });
+      };
+      scroll();
+      const timer = setTimeout(scroll, 80);
+      return () => clearTimeout(timer);
+    }
+  }, [displayMessages.length, activeSessionId]);
+
+  // Focus input when chat opens or switches
   useEffect(() => {
     if (isOpen && !isConfiguringKey && !isSending) {
       setTimeout(() => {
-        inputRef.current?.focus();
+        inputRef.current?.focus?.();
       }, 200);
     }
-  }, [isOpen, isConfiguringKey, isSending]);
+  }, [isOpen, isConfiguringKey, isSending, activeSessionId]);
 
   // Connect & verify API Key
   const handleConnectKey = async (e) => {
-    if (e) e.preventDefault();
+    if (e?.preventDefault) e.preventDefault();
     setKeyError('');
     setKeySuccess('');
 
@@ -254,11 +375,12 @@ export default function AiTutorModal({ currentWord }) {
       setGeminiApiKey(cleanKey);
 
       const workingConfig = {
-        model: testRes?.model || 'gemini-1.5-flash',
+        model: testRes?.model || selectedModel || 'gemini-1.5-flash',
         apiVersion: testRes?.apiVersion || 'v1',
       };
       setActiveConfig(workingConfig.model, workingConfig.apiVersion);
       setGeminiModelConfig(workingConfig);
+      setSelectedModel(workingConfig.model);
 
       const activeModelName = workingConfig.model;
       setKeySuccess(`Kết nối thành công (${activeModelName})! Đang chuyển vào phòng học...`);
@@ -271,6 +393,52 @@ export default function AiTutorModal({ currentWord }) {
     } finally {
       setIsTestingKey(false);
     }
+  };
+
+  const handleModelChange = (modelName) => {
+    setSelectedModel(modelName);
+    const matched = CANDIDATE_CONFIGS.find(c => c.model === modelName);
+    const apiVersion = matched ? matched.apiVersion : 'v1';
+    setActiveConfig(modelName, apiVersion);
+    setGeminiModelConfig({ model: modelName, apiVersion });
+    antMessage.info(`Đã đổi mô hình sang ${modelName}`);
+  };
+
+  const handleClearKey = () => {
+    setApiKey('');
+    setInputKey('');
+    setGeminiApiKey('');
+    setGeminiModelConfig(null);
+    setIsConfiguringKey(true);
+    antMessage.success('Đã xóa API Key!');
+  };
+
+  // Switch to new empty chat draft
+  const handleNewChat = () => {
+    setActiveSessionId(null);
+    setInputText('');
+    setChatError('');
+    setIsConfiguringKey(false);
+    if (window.innerWidth < 680) {
+      setIsSidebarOpen(false);
+    }
+  };
+
+  // Select an existing session
+  const handleSelectSession = (sessionId) => {
+    setActiveSessionId(sessionId);
+    setInputText('');
+    setChatError('');
+    setIsConfiguringKey(false);
+    if (window.innerWidth < 680) {
+      setIsSidebarOpen(false);
+    }
+  };
+
+  // Delete a session
+  const handleDeleteSession = (sessionId) => {
+    deleteChatSession(sessionId);
+    antMessage.success('Đã xóa đoạn chat');
   };
 
   // Send a message
@@ -291,19 +459,24 @@ export default function AiTutorModal({ currentWord }) {
       timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
     };
 
-    const newMessages = [...messages, userMsg];
-    setMessages(newMessages);
-    setAiChatHistory(newMessages);
     setInputText('');
-    if (inputRef.current) {
-      inputRef.current.style.height = '44px';
-      inputRef.current.style.overflowY = 'hidden';
-    }
     setChatError('');
     setIsSending(true);
 
+    let messagesForAi = [];
+    if (!activeSessionId) {
+      // First message in a new session: auto-name by timestamp (HH:mm - DD/MM/YYYY)
+      const newTitle = formatSessionTitle(new Date());
+      createChatSession(userMsg, newTitle);
+      messagesForAi = [userMsg];
+    } else {
+      const updated = [...currentMessages, userMsg];
+      updateActiveSessionMessages(updated);
+      messagesForAi = updated;
+    }
+
     try {
-      const reply = await sendChatMessage(activeKey, newMessages, currentWord);
+      const reply = await sendChatMessage(activeKey, messagesForAi, currentWord);
       const isSecurityBlocked =
         reply === SECURITY_BLOCKED_MESSAGE ||
         (typeof reply === 'string' && reply.startsWith('🛡️'));
@@ -315,9 +488,8 @@ export default function AiTutorModal({ currentWord }) {
         isSecurityBlocked,
         timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
       };
-      const finalMessages = [...newMessages, assistantMsg];
-      setMessages(finalMessages);
-      setAiChatHistory(finalMessages);
+
+      updateActiveSessionMessages(prev => [...prev, assistantMsg]);
     } catch (err) {
       setChatError(err.message || 'Có lỗi xảy ra khi trò chuyện với AI.');
     } finally {
@@ -330,26 +502,26 @@ export default function AiTutorModal({ currentWord }) {
     let prompt = '';
     if (type === 'format_words') {
       const topicName = wordTopic || 'IELTS Academic Core';
-      prompt = `📋 Hãy gợi ý cho tôi 5 từ vựng IELTS Band 7.5+ đắt giá về chủ đề "${topicName}" theo đúng chuẩn định dạng Nhập hàng loạt của ứng dụng (đặt trong khối mã text code block) để tôi có thể copy dán trực tiếp vào app.`;
+      prompt = `📋 Hãy gợi ý 5 từ vựng IELTS Band 7.5+ đắt giá về chủ đề "${topicName}" theo đúng chuẩn định dạng Nhập hàng loạt của ứng dụng (đặt trong 1 khối mã text code block duy nhất) để tôi copy dán trực tiếp. Đi thẳng vào nội dung, không chào hỏi, không dạo đầu.`;
     } else if (type === 'guide') {
-      prompt = `❓ Hãy hướng dẫn chi tiết cách sử dụng các tính năng trong ứng dụng VocabMaster (Thẻ học từ mới, Thẻ kiểm tra xen kẽ, cơ chế SRS tự động) và các phím tắt học tập hiệu quả.`;
+      prompt = `❓ Hướng dẫn thật súc tích cách dùng các tính năng chính trong ứng dụng VocabMaster (Thẻ học từ mới, Thẻ kiểm tra xen kẽ, cơ chế SRS tự động) và các phím tắt. Đi thẳng vào nội dung, không chào hỏi, không dạo đầu.`;
     } else if (type === 'explain') {
       if (wordText) {
-        prompt = `💡 Hãy giải thích chi tiết từ "${wordText}" (${wordVi || ''}), chỉ ra các collocations thông dụng và đặt 2 câu ví dụ chuẩn IELTS Band 7.5+.`;
+        prompt = `💡 Giải thích từ "${wordText}" (${wordVi || ''}): 1 dòng nghĩa cốt lõi, 2-3 collocations tự nhiên kèm nghĩa, 1-2 câu ví dụ ngữ cảnh IELTS Band 7.5+ kèm dịch câu. Đi thẳng vào nội dung, không chào hỏi, không dạo đầu.`;
       } else {
-        prompt = `💡 Hãy hướng dẫn tôi cách học từ vựng để nâng band Lexical Resource trong IELTS lên 7.5+ và cho 3 ví dụ tiêu biểu.`;
+        prompt = `💡 Hướng dẫn ngắn gọn cách học từ vựng nâng band Lexical Resource lên 7.5+ và cho 3 ví dụ tiêu biểu. Đi thẳng vào nội dung, không chào hỏi, không dạo đầu.`;
       }
     } else if (type === 'writing') {
       if (wordText) {
-        prompt = `📝 Hãy viết một đoạn văn ngắn chuẩn IELTS Writing Task 2 có sử dụng từ "${wordText}". Sau đó phân tích cách dùng từ trong ngữ cảnh này.`;
+        prompt = `📝 Viết trực tiếp 1 đoạn văn ngắn chuẩn IELTS Writing Task 2 có sử dụng và in đậm từ "${wordText}", kèm 1-2 lưu ý ngắn về cách dùng. Đi thẳng vào nội dung, không chào hỏi, không dạo đầu.`;
       } else {
-        prompt = `📝 Hãy viết một đoạn văn mẫu IELTS Writing Task 2 về một chủ đề xu hướng và chỉ ra các từ vựng học thuật được dùng.`;
+        prompt = `📝 Viết trực tiếp 1 đoạn văn mẫu ngắn IELTS Writing Task 2 về một chủ đề xu hướng và in đậm các từ vựng học thuật. Đi thẳng vào nội dung, không chào hỏi, không dạo đầu.`;
       }
     } else if (type === 'quiz') {
       if (wordText) {
-        prompt = `🎯 Hãy đố tôi 1 câu hỏi trắc nghiệm (có 4 đáp án A, B, C, D) để kiểm tra cách dùng chính xác của từ "${wordText}". Đừng vội đưa ra đáp án, hãy chờ tôi trả lời!`;
+        prompt = `🎯 Đố tôi 1 câu hỏi trắc nghiệm 4 lựa chọn A, B, C, D về cách dùng chính xác của từ "${wordText}". Đưa trực tiếp câu hỏi và 4 đáp án, chưa đưa giải thích hay đáp án vội. Đi thẳng vào nội dung, không chào hỏi, không dạo đầu.`;
       } else {
-        prompt = `🎯 Hãy đố tôi một câu hỏi trắc nghiệm từ vựng IELTS khó (Band 7.5+) để tôi thử sức!`;
+        prompt = `🎯 Đố tôi 1 câu hỏi trắc nghiệm từ vựng IELTS Band 7.5+ (gồm câu hỏi và 4 lựa chọn A, B, C, D, chưa đưa đáp án vội). Đi thẳng vào nội dung, không chào hỏi, không dạo đầu.`;
       }
     }
 
@@ -358,427 +530,643 @@ export default function AiTutorModal({ currentWord }) {
     }
   };
 
-  // Auto-resize textarea when user types
-  const handleInputChange = (e) => {
-    setInputText(e.target.value);
-    const target = e.target;
-    target.style.height = 'auto';
-    const newHeight = Math.min(target.scrollHeight, 120);
-    target.style.height = `${Math.max(newHeight, 44)}px`;
-    target.style.overflowY = 'hidden';
-  };
-
-  // Keyboard shortcut in chat input: Enter to send
+  // Keyboard shortcut: Enter to send
   const handleKeyDown = (e) => {
     if (e.key === 'Enter' && !e.shiftKey) {
       e.preventDefault();
       handleSendMessage();
-      if (inputRef.current) {
-        inputRef.current.style.height = '44px';
-        inputRef.current.style.overflowY = 'hidden';
-      }
     }
+  };
+
+  const modelOptions = useMemo(() => [
+    { value: 'gemini-1.5-flash', label: 'Gemini 1.5 Flash (Khuyên dùng - Siêu tốc & Ổn định)' },
+    { value: 'gemini-2.0-flash', label: 'Gemini 2.0 Flash (Thế hệ mới)' },
+    { value: 'gemini-1.5-pro', label: 'Gemini 1.5 Pro (Tư duy & Phân tích chuyên sâu)' },
+  ], []);
+
+  // Render individual item in VirtualList
+  const renderMessageItem = (msg) => {
+    if (msg.role === 'thinking') {
+      return (
+        <div key={msg.id} className="ai-message-row" style={{ padding: '6px 16px' }}>
+          <Flex justify="flex-start" gap={10} style={{ marginBottom: 10 }}>
+            <Avatar size={32} icon={<RobotOutlined />} style={{ backgroundColor: '#1f1b3c', flexShrink: 0 }} />
+            <div
+              style={{
+                background: 'rgba(255, 255, 255, 0.04)',
+                padding: '10px 16px',
+                borderRadius: '16px 16px 16px 4px',
+                border: '1px solid rgba(255, 255, 255, 0.08)',
+              }}
+            >
+              <Space size={8}>
+                <Spin size="small" />
+                <Typography.Text type="secondary" style={{ fontSize: 13 }}>
+                  AI Tutor đang suy nghĩ...
+                </Typography.Text>
+              </Space>
+            </div>
+          </Flex>
+        </div>
+      );
+    }
+
+    if (msg.role === 'user') {
+      return (
+        <div key={msg.id} className="ai-message-row" style={{ padding: '6px 16px' }}>
+          <Flex justify="flex-end" style={{ marginBottom: 8 }}>
+            <div
+              style={{
+                maxWidth: '82%',
+                background: '#7c6af7',
+                color: '#ffffff',
+                padding: '10px 14px',
+                borderRadius: '16px 16px 4px 16px',
+                boxShadow: '0 2px 8px rgba(124, 106, 247, 0.25)',
+                wordBreak: 'break-word',
+              }}
+            >
+              <Typography.Text style={{ color: '#ffffff', whiteSpace: 'pre-wrap' }}>
+                {msg.content}
+              </Typography.Text>
+              <div style={{ textAlign: 'right', fontSize: 10, opacity: 0.7, marginTop: 4 }}>
+                {msg.timestamp}
+              </div>
+            </div>
+          </Flex>
+        </div>
+      );
+    }
+
+    const isSecurityAlert =
+      msg.isSecurityBlocked ||
+      msg.content === SECURITY_BLOCKED_MESSAGE ||
+      (typeof msg.content === 'string' && msg.content.startsWith('🛡️'));
+
+    return (
+      <div key={msg.id} className="ai-message-row" style={{ padding: '6px 16px' }}>
+        <Flex justify="flex-start" gap={10} style={{ marginBottom: 12 }}>
+          <Avatar
+            size={32}
+            icon={isSecurityAlert ? <SafetyCertificateOutlined /> : <RobotOutlined />}
+            style={{
+              backgroundColor: isSecurityAlert ? '#ff4d4f' : '#1f1b3c',
+              border: '1px solid rgba(255, 255, 255, 0.15)',
+              flexShrink: 0,
+            }}
+          />
+          <div
+            style={{
+              maxWidth: '85%',
+              background: isSecurityAlert ? 'rgba(255, 77, 79, 0.08)' : 'rgba(255, 255, 255, 0.04)',
+              border: isSecurityAlert ? '1px solid rgba(255, 77, 79, 0.3)' : '1px solid rgba(255, 255, 255, 0.08)',
+              padding: '12px 16px',
+              borderRadius: '16px 16px 16px 4px',
+              wordBreak: 'break-word',
+            }}
+          >
+            {isSecurityAlert && (
+              <Tag color="error" icon={<SafetyCertificateOutlined />} style={{ marginBottom: 8 }}>
+                Lá chắn An toàn & Bảo mật
+              </Tag>
+            )}
+            <FormattedMessage content={msg.content} />
+            <div style={{ fontSize: 10, color: 'rgba(255, 255, 255, 0.45)', marginTop: 6 }}>
+              {msg.timestamp}
+            </div>
+          </div>
+        </Flex>
+      </div>
+    );
   };
 
   return (
     <>
       {/* ─── Floating Action Button ─── */}
-      <button
-        type="button"
-        className={`ai-fab-button ${isOpen ? 'active' : ''}`}
+      <FloatButton
+        type="primary"
+        icon={<RobotOutlined style={{ fontSize: 22 }} />}
+        tooltip={user && (apiKey || geminiApiKey) ? 'IELTS AI Tutor (☁️ Đã đồng bộ Google)' : 'IELTS AI Tutor'}
+        badge={wordText ? { dot: true, color: '#52c41a' } : undefined}
         onClick={() => {
-          setIsOpen(!isOpen);
+          setIsOpen(true);
           if (!apiKey && !geminiApiKey) setIsConfiguringKey(true);
         }}
-        title={user && (apiKey || geminiApiKey) ? "IELTS AI Tutor (☁️ Đã đồng bộ Google)" : "IELTS AI Tutor"}
-        aria-label="IELTS AI Tutor"
-      >
-        <div className="ai-fab-icon-wrap">
-          <span className="ai-fab-icon">🤖</span>
-          <span className="ai-fab-pulse-ring"></span>
-        </div>
-        <span className="ai-fab-label">IELTS AI Tutor</span>
-        {wordText && <span className="ai-fab-word-dot" title={`Đang học: ${wordText}`}></span>}
-      </button>
+        style={{
+          right: 24,
+          bottom: 24,
+          width: 54,
+          height: 54,
+        }}
+      />
 
-      {/* ─── AI Tutor Window / Modal ─── */}
-      {isOpen && (
-        <div className="ai-modal-backdrop" onClick={() => setIsOpen(false)}>
-          <div
-            className="ai-modal-window"
-            onClick={(e) => e.stopPropagation()}
-            role="dialog"
-            aria-modal="true"
-          >
-            {/* Header */}
-            <div className="ai-modal-header">
-              <div className="ai-header-info">
-                <div className="ai-avatar">🤖</div>
-                <div>
-                  <div className="ai-title-row">
-                    <h3 className="ai-title">IELTS AI Tutor</h3>
-                    <span className="ai-badge-status">
-                      <span className="ai-status-dot"></span> Online
-                    </span>
-                  </div>
-                  <p className="ai-subtitle">Trợ lý học thuật & Luyện đề IELTS</p>
-                  {user && (apiKey || geminiApiKey) && (
-                    <div className="ai-synced-badge" title="Đã đồng bộ API Key theo tài khoản Google qua Cloud Firestore">
-                      ☁️ Đã đồng bộ API Key theo tài khoản Google
-                    </div>
-                  )}
-                </div>
+      {/* ─── AI Tutor Modal Window ─── */}
+      <Modal
+        open={isOpen}
+        onCancel={() => setIsOpen(false)}
+        footer={null}
+        width={920}
+        style={{ top: 20, maxWidth: 'calc(100vw - 24px)' }}
+        styles={{
+          body: {
+            height: '80vh',
+            maxHeight: '760px',
+            minHeight: '520px',
+            display: 'flex',
+            flexDirection: 'column',
+            padding: 0,
+            overflow: 'hidden',
+          },
+        }}
+        title={
+          <Flex align="center" justify="space-between" style={{ width: '100%', paddingRight: 28 }}>
+            <Space align="center" size={10}>
+              <Avatar style={{ backgroundColor: '#7c6af7' }} icon={<RobotOutlined />} size={36} />
+              <div>
+                <Space size={6} align="center">
+                  <Typography.Text strong style={{ fontSize: 16 }}>
+                    IELTS AI Tutor
+                  </Typography.Text>
+                  <Badge status="processing" text={<span style={{ fontSize: 12, color: '#52c41a' }}>Online</span>} />
+                </Space>
+                <Typography.Text type="secondary" style={{ fontSize: 12, display: 'block' }}>
+                  Trợ lý học thuật & Luyện đề IELTS
+                </Typography.Text>
               </div>
+            </Space>
 
-              <div className="ai-header-actions">
-                {messages.length > 0 && !isConfiguringKey && (
-                  <button
-                    type="button"
-                    className="ai-btn-icon"
-                    onClick={() => {
-                      if (confirm('Xóa lịch sử cuộc trò chuyện này?')) {
-                        setMessages([]);
-                        setAiChatHistory([]);
-                      }
-                    }}
-                    title="Xóa lịch sử trò chuyện"
-                  >
-                    🗑️
-                  </button>
-                )}
-                <button
-                  type="button"
-                  className="ai-btn-icon"
+            <Space size={8}>
+              <Tooltip title={isConfiguringKey && (apiKey || geminiApiKey) ? 'Quay lại Chat' : 'Cài đặt Gemini API & Model'}>
+                <Button
+                  type={isConfiguringKey ? 'primary' : 'text'}
+                  icon={<SettingOutlined />}
                   onClick={() => {
                     setIsConfiguringKey(!isConfiguringKey);
                     setKeyError('');
                     setKeySuccess('');
                   }}
-                  title={isConfiguringKey && (apiKey || geminiApiKey) ? 'Quay lại Chat' : 'Cấu hình API Key'}
+                />
+              </Tooltip>
+            </Space>
+          </Flex>
+        }
+      >
+        {/* Context bar when viewing a word */}
+        {wordText && !isConfiguringKey && (
+          <div
+            style={{
+              padding: '8px 16px',
+              background: 'rgba(124, 106, 247, 0.08)',
+              borderBottom: '1px solid rgba(124, 106, 247, 0.16)',
+            }}
+          >
+            <Space size={8} wrap>
+              <Tag color="purple">Đang học</Tag>
+              <Typography.Text strong style={{ color: '#a78bfa' }}>
+                {wordText}
+              </Typography.Text>
+              {wordVi && <Typography.Text type="secondary">({wordVi})</Typography.Text>}
+              {wordTopic && <Tag color="blue">{wordTopic}</Tag>}
+            </Space>
+          </div>
+        )}
+
+        {/* View 1: Settings Panel */}
+        {isConfiguringKey ? (
+          <div style={{ flex: 1, overflowY: 'auto', padding: '20px 24px' }}>
+            <Space orientation="vertical" size={16} style={{ width: '100%' }}>
+              <Collapse
+                defaultActiveKey={['config']}
+                items={[
+                  {
+                    key: 'config',
+                    label: (
+                      <Space>
+                        <KeyOutlined style={{ color: '#7c6af7' }} />
+                        <Typography.Text strong>Cài đặt Gemini API & Model</Typography.Text>
+                      </Space>
+                    ),
+                    children: (
+                      <Space orientation="vertical" size={14} style={{ width: '100%' }}>
+                        <Alert
+                          type="info"
+                          showIcon
+                          title="IELTS AI Tutor kết nối mô hình Gemini Flash siêu tốc và hoàn toàn miễn phí từ Google AI Studio."
+                        />
+
+                        {user && (apiKey || geminiApiKey) && (
+                          <Alert
+                            type="success"
+                            showIcon
+                            icon={<CloudSyncOutlined />}
+                            title={`Đã đồng bộ API Key theo tài khoản Google (${user.email})`}
+                          />
+                        )}
+
+                        <div
+                          style={{
+                            background: 'rgba(255, 255, 255, 0.03)',
+                            padding: '12px 16px',
+                            borderRadius: 8,
+                            fontSize: 13,
+                          }}
+                        >
+                          <Typography.Text strong style={{ display: 'block', marginBottom: 6 }}>
+                            Hướng dẫn lấy API Key miễn phí (1 phút):
+                          </Typography.Text>
+                          <ol style={{ margin: 0, paddingLeft: 20, lineHeight: 1.7 }}>
+                            <li>
+                              Truy cập{' '}
+                              <a
+                                href="https://aistudio.google.com/app/apikey"
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                style={{ color: '#7c6af7', textDecoration: 'underline' }}
+                              >
+                                Google AI Studio ↗
+                              </a>
+                            </li>
+                            <li>Đăng nhập tài khoản Google và bấm <strong>Create API key</strong>.</li>
+                            <li>Sao chép key, dán vào ô bên dưới rồi nhấn <strong>Kiểm tra & Kết nối</strong>.</li>
+                          </ol>
+                        </div>
+
+                        <div>
+                          <Typography.Text style={{ display: 'block', marginBottom: 6 }}>
+                            Google Gemini API Key:
+                          </Typography.Text>
+                          <Input.Password
+                            placeholder="AIzaSy..."
+                            value={inputKey}
+                            onChange={(e) => setInputKey(e.target.value)}
+                            disabled={isTestingKey}
+                            size="large"
+                          />
+                        </div>
+
+                        <div>
+                          <Typography.Text style={{ display: 'block', marginBottom: 6 }}>
+                            Mô hình AI ưu tiên (Gemini Model):
+                          </Typography.Text>
+                          <Select
+                            value={selectedModel}
+                            onChange={handleModelChange}
+                            options={modelOptions}
+                            style={{ width: '100%' }}
+                            size="large"
+                          />
+                        </div>
+
+                        {keyError && <Alert type="error" showIcon title={keyError} />}
+                        {keySuccess && <Alert type="success" showIcon title={keySuccess} />}
+
+                        <Flex justify="space-between" align="center" wrap="wrap" gap={8} style={{ marginTop: 8 }}>
+                          <Button
+                            type="primary"
+                            icon={<RocketOutlined />}
+                            loading={isTestingKey}
+                            disabled={!inputKey.trim()}
+                            onClick={handleConnectKey}
+                            size="large"
+                          >
+                            Kiểm tra & Kết nối
+                          </Button>
+
+                          <Space>
+                            {(apiKey || geminiApiKey) && (
+                              <Button
+                                onClick={() => {
+                                  setInputKey(apiKey || geminiApiKey);
+                                  setIsConfiguringKey(false);
+                                  setKeyError('');
+                                }}
+                                disabled={isTestingKey}
+                              >
+                                Quay lại chat
+                              </Button>
+                            )}
+
+                            {(apiKey || geminiApiKey) && (
+                              <Popconfirm
+                                title="Xóa API Key?"
+                                description="Xóa API Key khỏi ứng dụng và tài khoản Google?"
+                                onConfirm={handleClearKey}
+                                okText="Xóa"
+                                cancelText="Hủy"
+                                okButtonProps={{ danger: true }}
+                              >
+                                <Button danger disabled={isTestingKey}>
+                                  Xóa Key
+                                </Button>
+                              </Popconfirm>
+                            )}
+                          </Space>
+                        </Flex>
+                      </Space>
+                    ),
+                  },
+                ]}
+              />
+
+              <Typography.Text type="secondary" style={{ fontSize: 12, display: 'block', textAlign: 'center' }}>
+                {user ? (
+                  <>☁️ Key và lịch sử học tập được đồng bộ bảo mật qua Cloud Firestore theo tài khoản Google của bạn.</>
+                ) : (
+                  <>🔒 Key được lưu an toàn trên trình duyệt của bạn (localStorage) và chỉ gửi trực tiếp tới máy chủ Google API.</>
+                )}
+              </Typography.Text>
+            </Space>
+          </div>
+        ) : (
+          /* View 2: Multi-Session 2-Column Chat Layout */
+          <div className="ai-modal-layout">
+            {/* ─── Column 1: Sidebar (Chat Sessions) ─── */}
+            <div
+              className={`ai-sidebar ${isSidebarOpen ? 'open' : 'closed'}`}
+              style={{
+                width: isSidebarOpen ? 260 : 0,
+                minWidth: isSidebarOpen ? 260 : 0,
+                maxWidth: 260,
+              }}
+            >
+              <div className="ai-sidebar-header">
+                <Button
+                  type="primary"
+                  icon={<PlusOutlined />}
+                  block
+                  onClick={handleNewChat}
+                  style={{
+                    background: 'linear-gradient(135deg, #7c6af7 0%, #5b52e0 100%)',
+                    border: 'none',
+                    height: 38,
+                    fontWeight: 600,
+                    boxShadow: '0 2px 8px rgba(124, 106, 247, 0.3)',
+                  }}
                 >
-                  {isConfiguringKey && (apiKey || geminiApiKey) ? '💬' : '⚙️'}
-                </button>
-                <button
-                  type="button"
-                  className="ai-btn-icon ai-btn-close"
-                  onClick={() => setIsOpen(false)}
-                  title="Đóng cửa sổ"
-                >
-                  ✕
-                </button>
+                  Đoạn chat mới
+                </Button>
+                <Input.Search
+                  placeholder="Tìm kiếm đoạn chat..."
+                  allowClear
+                  value={searchText}
+                  onChange={e => setSearchText(e.target.value)}
+                  style={{ marginTop: 10 }}
+                />
+              </div>
+
+              <div className="ai-sidebar-list">
+                {filteredSessions.length === 0 ? (
+                  <div style={{ textAlign: 'center', padding: '30px 10px', color: 'rgba(255, 255, 255, 0.4)', fontSize: 13 }}>
+                    {searchText ? 'Không tìm thấy đoạn chat nào' : 'Chưa có đoạn chat nào'}
+                  </div>
+                ) : (
+                  filteredSessions.map(session => {
+                    const isActive = session.id === activeSessionId;
+                    const msgCount = session.messages?.length || 0;
+                    return (
+                      <div
+                        key={session.id}
+                        className={`ai-session-item ${isActive ? 'active' : ''}`}
+                        onClick={() => handleSelectSession(session.id)}
+                      >
+                        <div style={{ minWidth: 0, flex: 1 }}>
+                          <Flex align="center" gap={6}>
+                            <MessageOutlined style={{ color: isActive ? '#a78bfa' : '#94a3b8', fontSize: 13, flexShrink: 0 }} />
+                            <Typography.Text
+                              strong={isActive}
+                              ellipsis
+                              style={{
+                                color: isActive ? '#ffffff' : '#cbd5e1',
+                                fontSize: 13,
+                                display: 'block',
+                              }}
+                            >
+                              {session.title || 'Đoạn chat'}
+                            </Typography.Text>
+                          </Flex>
+                          <Flex justify="space-between" align="center" style={{ marginTop: 4 }}>
+                            <Typography.Text type="secondary" style={{ fontSize: 11 }}>
+                              {msgCount} tin nhắn
+                            </Typography.Text>
+                            {session.createdAt && (
+                              <Typography.Text type="secondary" style={{ fontSize: 10, opacity: 0.6 }}>
+                                {new Date(session.createdAt).toLocaleDateString([], { month: 'numeric', day: 'numeric' })}
+                              </Typography.Text>
+                            )}
+                          </Flex>
+                        </div>
+
+                        <Popconfirm
+                          title="Xóa đoạn chat?"
+                          description="Bạn có chắc chắn muốn xóa đoạn chat này?"
+                          onConfirm={(e) => {
+                            e?.stopPropagation?.();
+                            handleDeleteSession(session.id);
+                          }}
+                          onCancel={(e) => e?.stopPropagation?.()}
+                          okText="Xóa"
+                          cancelText="Hủy"
+                          okButtonProps={{ danger: true }}
+                        >
+                          <Button
+                            type="text"
+                            danger
+                            size="small"
+                            icon={<DeleteOutlined />}
+                            onClick={(e) => e.stopPropagation()}
+                            className="ai-session-delete-btn"
+                          />
+                        </Popconfirm>
+                      </div>
+                    );
+                  })
+                )}
               </div>
             </div>
 
-            {/* Content: Either Key Configuration or Chat */}
-            {isConfiguringKey ? (
-              <div className="ai-config-view">
-                <div className="ai-config-icon">🔑</div>
-                <h4>Kết nối Google Gemini API</h4>
-                <p className="ai-config-desc">
-                  IELTS AI Tutor tự động kết nối mô hình <strong>Gemini Flash</strong> ({geminiModelConfig?.model || getActiveModel()}) siêu tốc và hoàn toàn <strong>miễn phí</strong> từ Google.
-                </p>
-
-                {user && (apiKey || geminiApiKey) && (
-                  <div className="ai-synced-config-notice">
-                    <span>☁️ Đã đồng bộ API Key theo tài khoản Google (<strong>{user.email}</strong>)</span>
-                  </div>
-                )}
-
-                <div className="ai-guide-box">
-                  <div className="ai-guide-step">
-                    <span className="ai-step-num">1</span>
-                    <span>
-                      Truy cập{' '}
-                      <a
-                        href="https://aistudio.google.com/app/apikey"
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        className="ai-link"
-                      >
-                        Google AI Studio ↗
-                      </a>
-                    </span>
-                  </div>
-                  <div className="ai-guide-step">
-                    <span className="ai-step-num">2</span>
-                    <span>Đăng nhập tài khoản Google và bấm <strong>Create API key</strong>.</span>
-                  </div>
-                  <div className="ai-guide-step">
-                    <span className="ai-step-num">3</span>
-                    <span>Sao chép key, dán vào ô bên dưới rồi nhấn <strong>Kết nối</strong>.</span>
-                  </div>
-                </div>
-
-                <form onSubmit={handleConnectKey} className="ai-config-form">
-                  <div className="ai-input-group">
-                    <input
-                      type={showKeyPassword ? 'text' : 'password'}
-                      className="ai-key-input"
-                      placeholder="Dán mã Gemini API Key tại đây (AIzaSy...)"
-                      value={inputKey}
-                      onChange={(e) => setInputKey(e.target.value)}
-                      disabled={isTestingKey}
-                      autoFocus
+            {/* ─── Column 2: Main Chat View ─── */}
+            <div className="ai-chat-main">
+              {/* Header Bar */}
+              <div className="ai-chat-header">
+                <Space size={10} align="center" style={{ minWidth: 0, flex: 1 }}>
+                  <Tooltip title={isSidebarOpen ? 'Thu gọn danh sách' : 'Mở danh sách đoạn chat'}>
+                    <Button
+                      type="text"
+                      icon={isSidebarOpen ? <MenuFoldOutlined /> : <MenuUnfoldOutlined />}
+                      onClick={() => setIsSidebarOpen(!isSidebarOpen)}
                     />
-                    <button
-                      type="button"
-                      className="ai-btn-toggle-eye"
-                      onClick={() => setShowKeyPassword(!showKeyPassword)}
-                      tabIndex="-1"
-                      title={showKeyPassword ? 'Ẩn key' : 'Hiện key'}
-                    >
-                      {showKeyPassword ? '👁️' : '🔒'}
-                    </button>
-                  </div>
+                  </Tooltip>
 
-                  {keyError && (
-                    <div className="ai-alert ai-alert-error">
-                      <span>⚠️ {keyError}</span>
-                    </div>
-                  )}
-
-                  {keySuccess && (
-                    <div className="ai-alert ai-alert-success">
-                      <span>✨ {keySuccess}</span>
-                    </div>
-                  )}
-
-                  <div className="ai-config-actions">
-                    <button
-                      type="submit"
-                      className="ai-btn-connect"
-                      disabled={isTestingKey || !inputKey.trim()}
-                    >
-                      {isTestingKey ? (
-                        <>
-                          <span className="ai-spinner-sm"></span>
-                          Đang kiểm tra kết nối...
-                        </>
-                      ) : (
-                        '🚀 Kết nối & Bắt đầu'
-                      )}
-                    </button>
-
-                    {(apiKey || geminiApiKey) && (
-                      <button
-                        type="button"
-                        className="ai-btn-secondary"
-                        onClick={() => {
-                          setInputKey(apiKey || geminiApiKey);
-                          setIsConfiguringKey(false);
-                          setKeyError('');
-                        }}
-                        disabled={isTestingKey}
+                  <div style={{ minWidth: 0, flex: 1 }}>
+                    <Flex align="center" gap={8}>
+                      <Typography.Text
+                        strong
+                        ellipsis
+                        style={{ fontSize: 15, color: '#f1f5f9', maxWidth: 300 }}
                       >
-                        Quay lại trò chuyện
-                      </button>
-                    )}
-
-                    {(apiKey || geminiApiKey) && (
-                      <button
-                        type="button"
-                        className="ai-btn-clear-key"
-                        onClick={() => {
-                          if (confirm('Xóa API Key khỏi ứng dụng và tài khoản Google?')) {
-                            setApiKey('');
-                            setInputKey('');
-                            setGeminiApiKey('');
-                            setGeminiModelConfig(null);
-                            setIsConfiguringKey(true);
-                          }
-                        }}
-                        disabled={isTestingKey}
-                        title="Xóa API Key đã lưu"
-                      >
-                        Xóa Key
-                      </button>
-                    )}
+                        {activeSession ? activeSession.title : 'Đoạn chat mới'}
+                      </Typography.Text>
+                      <Tag color="purple" style={{ margin: 0 }}>
+                        {activeSession ? `${currentMessages.length} tin nhắn` : 'Mới'}
+                      </Tag>
+                    </Flex>
                   </div>
-                </form>
+                </Space>
 
-                <p className="ai-config-footnote">
-                  {user ? (
-                    <>☁️ Key và lịch sử học tập được đồng bộ an toàn qua tài khoản Google của bạn trên Cloud Firestore.</>
-                  ) : (
-                    <>🔒 Key của bạn được lưu an toàn trên trình duyệt của máy bạn (localStorage) và chỉ gửi trực tiếp tới Google API. Hãy đăng nhập Google để tự động đồng bộ sang thiết bị khác!</>
+                <Space size={8}>
+                  {activeSession && currentMessages.length > 0 && (
+                    <Popconfirm
+                      title="Xóa đoạn chat này?"
+                      description="Bạn có chắc chắn muốn xóa toàn bộ tin nhắn trong đoạn chat này?"
+                      onConfirm={() => {
+                        handleDeleteSession(activeSession.id);
+                      }}
+                      okText="Xóa"
+                      cancelText="Hủy"
+                      okButtonProps={{ danger: true }}
+                    >
+                      <Tooltip title="Xóa đoạn chat hiện tại">
+                        <Button type="text" danger icon={<DeleteOutlined />} />
+                      </Tooltip>
+                    </Popconfirm>
                   )}
-                </p>
+                </Space>
               </div>
-            ) : (
-              <div className="ai-chat-view">
-                {/* Current Card Context Banner */}
-                {wordText && (
-                  <div className="ai-current-word-bar">
-                    <span className="ai-word-tag">Đang xem:</span>
-                    <strong className="ai-word-highlight">{wordText}</strong>
-                    {wordVi && <span className="ai-word-vi">({wordVi})</span>}
-                    {wordTopic && <span className="ai-topic-tag">{wordTopic}</span>}
+
+              {/* Virtual Messages Container */}
+              <div className="ai-virtual-container" ref={chatContainerRef}>
+                {displayMessages.length === 0 ? (
+                  <div style={{ textAlign: 'center', padding: '36px 16px', height: '100%', overflowY: 'auto' }}>
+                    <Avatar size={54} icon={<RobotOutlined />} style={{ backgroundColor: '#7c6af7', marginBottom: 16 }} />
+                    <Typography.Title level={4} style={{ margin: '0 0 8px 0', color: '#f1f5f9' }}>
+                      Chào mừng bạn đến với IELTS AI Tutor!
+                    </Typography.Title>
+                    <Typography.Paragraph type="secondary" style={{ maxWidth: 460, margin: '0 auto 16px auto', fontSize: 13 }}>
+                      Tôi là gia sư AI đồng hành cùng bạn nâng band Lexical Resource lên <strong>Band 7.5+</strong>. Hãy hỏi tôi về collocations, ví dụ học thuật, đoạn văn mẫu hoặc các câu hỏi đố vui nhé!
+                    </Typography.Paragraph>
+                    <Tag color="purple" style={{ padding: '4px 10px', fontSize: 12 }}>
+                      💬 Nhập tin nhắn bên dưới để bắt đầu đoạn chat mới
+                    </Tag>
                   </div>
+                ) : (
+                  <VirtualList
+                    ref={virtualListRef}
+                    data={displayMessages}
+                    height={containerHeight}
+                    itemHeight={80}
+                    itemKey="id"
+                    style={{ overflowX: 'hidden' }}
+                  >
+                    {(msg) => renderMessageItem(msg)}
+                  </VirtualList>
                 )}
+              </div>
 
-                {/* Messages Body */}
-                <div className="ai-messages-list">
-                  {messages.length === 0 ? (
-                    <div className="ai-welcome-box">
-                      <div className="ai-welcome-icon">🎓</div>
-                      <h4>Chào mừng bạn đến với IELTS AI Tutor!</h4>
-                      <p>
-                        Tôi là gia sư AI đồng hành cùng bạn chinh phục mục tiêu <strong>Band 7.0+</strong>.
-                        Hãy hỏi tôi giải thích từ vựng, cung cấp collocations học thuật, viết đoạn văn mẫu hoặc đố vui nhé!
-                      </p>
-                    </div>
-                  ) : (
-                    messages.map((msg) => {
-                      const isSecurityAlert =
-                        msg.isSecurityBlocked ||
-                        msg.content === SECURITY_BLOCKED_MESSAGE ||
-                        (typeof msg.content === 'string' && msg.content.startsWith('🛡️'));
+              {/* Chat Error Banner */}
+              {chatError && (
+                <Alert
+                  type="error"
+                  showIcon
+                  title={chatError}
+                  action={
+                    <Button size="small" onClick={() => handleSendMessage()}>
+                      Thử lại
+                    </Button>
+                  }
+                  style={{ margin: '8px 14px' }}
+                />
+              )}
 
-                      return (
-                        <div
-                          key={msg.id}
-                          className={`ai-message-row ${msg.role === 'user' ? 'ai-user-row' : 'ai-assistant-row'} ${isSecurityAlert ? 'ai-row-blocked' : ''}`}
-                        >
-                          {msg.role === 'assistant' && (
-                            <div
-                              className={`ai-bubble-avatar ${isSecurityAlert ? 'ai-avatar-blocked' : ''}`}
-                              title={isSecurityAlert ? 'Lá chắn An toàn & Bảo mật' : 'IELTS AI Tutor'}
-                            >
-                              {isSecurityAlert ? '🛡️' : '🤖'}
-                            </div>
-                          )}
-                          <div
-                            className={`ai-bubble ${msg.role === 'user' ? 'ai-bubble-user' : 'ai-bubble-assistant'} ${isSecurityAlert ? 'ai-bubble-blocked' : ''}`}
-                          >
-                            {isSecurityAlert && (
-                              <div className="ai-security-shield-badge">
-                                <span className="ai-security-shield-icon">🛡️</span>
-                                <span className="ai-security-shield-title">Lá chắn An toàn & Bảo mật</span>
-                              </div>
-                            )}
-                            {msg.role === 'assistant' ? (
-                              <FormattedMessage content={msg.content} />
-                            ) : (
-                              <p className="ai-user-text">{msg.content}</p>
-                            )}
-                            <span className="ai-bubble-time">{msg.timestamp}</span>
-                          </div>
-                        </div>
-                      );
-                    })
-                  )}
+              {/* Quick Prompts Suggestions */}
+              <div
+                style={{
+                  padding: '8px 16px',
+                  borderTop: '1px solid rgba(255, 255, 255, 0.06)',
+                  background: 'rgba(0, 0, 0, 0.15)',
+                }}
+              >
+                <Typography.Text type="secondary" style={{ fontSize: 11, display: 'block', marginBottom: 4 }}>
+                  💡 Gợi ý hỏi nhanh:
+                </Typography.Text>
+                <Space wrap size={[6, 6]}>
+                  <Button
+                    type="dashed"
+                    size="small"
+                    onClick={() => handleQuickPrompt('format_words')}
+                    disabled={isSending}
+                  >
+                    📋 5 từ chuẩn format
+                  </Button>
+                  <Button
+                    type="dashed"
+                    size="small"
+                    onClick={() => handleQuickPrompt('guide')}
+                    disabled={isSending}
+                  >
+                    ❓ Hướng dẫn sử dụng app
+                  </Button>
+                  <Button
+                    type="dashed"
+                    size="small"
+                    onClick={() => handleQuickPrompt('explain')}
+                    disabled={isSending}
+                  >
+                    💡 Phân tích từ đang xem Band 7+
+                  </Button>
+                  <Button
+                    type="dashed"
+                    size="small"
+                    onClick={() => handleQuickPrompt('writing')}
+                    disabled={isSending}
+                  >
+                    📝 Viết Task 2 với từ này
+                  </Button>
+                  <Button
+                    type="dashed"
+                    size="small"
+                    onClick={() => handleQuickPrompt('quiz')}
+                    disabled={isSending}
+                  >
+                    🎯 Đố tôi câu hỏi trắc nghiệm
+                  </Button>
+                </Space>
+              </div>
 
-                  {/* Thinking Indicator */}
-                  {isSending && (
-                    <div className="ai-message-row ai-assistant-row">
-                      <div className="ai-bubble-avatar">🤖</div>
-                      <div className="ai-bubble ai-bubble-assistant ai-thinking-bubble">
-                        <span className="ai-thinking-text">AI Tutor đang suy nghĩ</span>
-                        <span className="ai-dot-typing">
-                          <span></span>
-                          <span></span>
-                          <span></span>
-                        </span>
-                      </div>
-                    </div>
-                  )}
-
-                  {/* Chat Error Banner */}
-                  {chatError && (
-                    <div className="ai-alert ai-alert-error ai-chat-error">
-                      <span>⚠️ {chatError}</span>
-                      <button
-                        type="button"
-                        className="ai-btn-retry"
-                        onClick={() => handleSendMessage()}
-                      >
-                        Thử lại
-                      </button>
-                    </div>
-                  )}
-
-                  <div ref={messagesEndRef} />
-                </div>
-
-                {/* Quick Prompts Suggestions */}
-                <div className="ai-quick-prompts">
-                  <div className="ai-quick-header">
-                    <span>💡 Gợi ý hỏi nhanh:</span>
-                  </div>
-                  <div className="ai-quick-buttons">
-                    <button
-                      type="button"
-                      className="ai-chip-btn ai-chip-btn-highlight"
-                      onClick={() => handleQuickPrompt('format_words')}
-                      disabled={isSending}
-                    >
-                      📋 Tạo 5 từ theo format thêm vào app
-                    </button>
-                    <button
-                      type="button"
-                      className="ai-chip-btn"
-                      onClick={() => handleQuickPrompt('guide')}
-                      disabled={isSending}
-                    >
-                      ❓ Hướng dẫn sử dụng app & phím tắt
-                    </button>
-                    <button
-                      type="button"
-                      className="ai-chip-btn"
-                      onClick={() => handleQuickPrompt('explain')}
-                      disabled={isSending}
-                    >
-                      💡 Giải thích từ đang xem & cho ví dụ Band 7+
-                    </button>
-                    <button
-                      type="button"
-                      className="ai-chip-btn"
-                      onClick={() => handleQuickPrompt('writing')}
-                      disabled={isSending}
-                    >
-                      📝 Viết đoạn văn Writing Task 2 chứa từ này
-                    </button>
-                    <button
-                      type="button"
-                      className="ai-chip-btn"
-                      onClick={() => handleQuickPrompt('quiz')}
-                      disabled={isSending}
-                    >
-                      🎯 Đố tôi một câu hỏi với từ này
-                    </button>
-                  </div>
-                </div>
-
-                {/* Chat Input Bar */}
-                <div className="ai-input-bar">
-                  <textarea
+              {/* Chat Input Bar */}
+              <div
+                style={{
+                  padding: '12px 16px',
+                  borderTop: '1px solid rgba(255, 255, 255, 0.08)',
+                  background: '#16142a',
+                }}
+              >
+                <Flex gap={8} align="flex-end">
+                  <Input.TextArea
                     ref={inputRef}
-                    className="ai-chat-input"
+                    autoSize={{ minRows: 1, maxRows: 4 }}
                     placeholder={
                       wordText
-                        ? `Hỏi AI về "${wordText}" hoặc nhấn gợi ý trên...`
-                        : 'Nhập câu hỏi để cùng luyện tập IELTS...'
+                        ? `Hỏi AI về "${wordText}" hoặc chọn gợi ý trên... (Enter để gửi)`
+                        : 'Nhập câu hỏi để cùng luyện tập IELTS... (Enter để gửi)'
                     }
                     value={inputText}
-                    onChange={handleInputChange}
+                    onChange={e => setInputText(e.target.value)}
                     onKeyDown={handleKeyDown}
                     disabled={isSending}
                   />
-                  <button
-                    type="button"
-                    className="ai-btn-send"
+                  <Button
+                    type="primary"
+                    icon={<SendOutlined />}
+                    loading={isSending}
+                    disabled={!inputText.trim() || isSending}
                     onClick={() => handleSendMessage()}
-                    disabled={isSending || !inputText.trim()}
-                    title="Gửi tin nhắn (Enter)"
-                  >
-                    ➤
-                  </button>
-                </div>
+                  />
+                </Flex>
               </div>
-            )}
+            </div>
           </div>
-        </div>
-      )}
+        )}
+      </Modal>
     </>
   );
 }

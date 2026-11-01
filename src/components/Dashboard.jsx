@@ -1,5 +1,14 @@
 import { useMemo } from 'react';
+import { Row, Col, Card, Statistic, Progress, Flex, Typography, Space } from 'antd';
+import {
+  BookOutlined,
+  ClockCircleOutlined,
+  CheckCircleOutlined,
+  AimOutlined,
+} from '@ant-design/icons';
 import { useStore } from '../store/useStore';
+
+const { Text } = Typography;
 
 export default function Dashboard() {
   const getAllWords = useStore(s => s.getAllWords);
@@ -24,51 +33,137 @@ export default function Dashboard() {
     return { unseen, learning, mastered, total, accuracy };
   }, [getAllWords, progress, topicFilter, sessionCorrect, sessionTotal]);
 
-  const masteredPct = stats.total > 0 ? (stats.mastered / stats.total) * 100 : 0;
-  const learningPct = stats.total > 0 ? (stats.learning / stats.total) * 100 : 0;
+  const masteredPct = stats.total > 0 ? Math.round((stats.mastered / stats.total) * 100) : 0;
+  const learningPct = stats.total > 0 ? Math.round((stats.learning / stats.total) * 100) : 0;
+  const activePct = Math.min(100, stats.total > 0 ? Math.round(((stats.mastered + stats.learning) / stats.total) * 100) : 0);
 
   return (
-    <div className="dashboard">
-      <div className="stats-grid">
-        <div className="stat-card stat-unseen">
-          <span className="stat-icon">📚</span>
-          <span className="stat-num">{stats.unseen}</span>
-          <span className="stat-label">Chưa xem</span>
-        </div>
-        <div className="stat-card stat-learning">
-          <span className="stat-icon">⏳</span>
-          <span className="stat-num">{stats.learning}</span>
-          <span className="stat-label">Chờ hỏi</span>
-        </div>
-        <div className="stat-card stat-mastered">
-          <span className="stat-icon">✅</span>
-          <span className="stat-num">{stats.mastered}</span>
-          <span className="stat-label">Đã thuộc</span>
-        </div>
-        <div className="stat-card stat-accuracy">
-          <span className="stat-icon">🎯</span>
-          <span className="stat-num">
-            {stats.accuracy !== null ? `${stats.accuracy}%` : '—'}
-          </span>
-          <span className="stat-label">Nhớ đúng</span>
-        </div>
-      </div>
+    <div className="dashboard" style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+      {/* 4 Thẻ thống kê */}
+      <Row gutter={[12, 12]}>
+        <Col xs={12} sm={6}>
+          <Card
+            size="small"
+            style={{
+              borderRadius: 12,
+              background: 'rgba(22, 20, 42, 0.75)',
+              backdropFilter: 'blur(10px)',
+              border: '1px solid rgba(255, 255, 255, 0.08)',
+            }}
+            styles={{ body: { padding: '12px 14px' } }}
+          >
+            <Statistic
+              title={<span style={{ fontSize: '0.8rem', color: '#9fa8c7' }}>Chưa xem</span>}
+              value={stats.unseen}
+              prefix={<BookOutlined style={{ color: '#9fa8c7', marginRight: 6, fontSize: '1.1rem' }} />}
+              styles={{ content: { fontSize: '1.6rem', fontWeight: 700, color: '#e8eaf6' } }}
+            />
+          </Card>
+        </Col>
 
-      <div className="progress-bar-wrap">
-        <div className="progress-bar">
-          <div
-            className="pb-mastered"
-            style={{ width: `${masteredPct}%` }}
-            title={`Đã thuộc: ${stats.mastered}`}
+        <Col xs={12} sm={6}>
+          <Card
+            size="small"
+            style={{
+              borderRadius: 12,
+              background: 'rgba(22, 20, 42, 0.75)',
+              backdropFilter: 'blur(10px)',
+              border: '1px solid rgba(245, 166, 35, 0.2)',
+            }}
+            styles={{ body: { padding: '12px 14px' } }}
+          >
+            <Statistic
+              title={<span style={{ fontSize: '0.8rem', color: '#f5a623' }}>Chờ hỏi</span>}
+              value={stats.learning}
+              prefix={<ClockCircleOutlined style={{ color: '#f5a623', marginRight: 6, fontSize: '1.1rem' }} />}
+              styles={{ content: { fontSize: '1.6rem', fontWeight: 700, color: '#f5a623' } }}
+            />
+          </Card>
+        </Col>
+
+        <Col xs={12} sm={6}>
+          <Card
+            size="small"
+            style={{
+              borderRadius: 12,
+              background: 'rgba(22, 20, 42, 0.75)',
+              backdropFilter: 'blur(10px)',
+              border: '1px solid rgba(46, 213, 115, 0.2)',
+            }}
+            styles={{ body: { padding: '12px 14px' } }}
+          >
+            <Statistic
+              title={<span style={{ fontSize: '0.8rem', color: '#2ed573' }}>Đã thuộc</span>}
+              value={stats.mastered}
+              prefix={<CheckCircleOutlined style={{ color: '#2ed573', marginRight: 6, fontSize: '1.1rem' }} />}
+              styles={{ content: { fontSize: '1.6rem', fontWeight: 700, color: '#2ed573' } }}
+            />
+          </Card>
+        </Col>
+
+        <Col xs={12} sm={6}>
+          <Card
+            size="small"
+            style={{
+              borderRadius: 12,
+              background: 'rgba(22, 20, 42, 0.75)',
+              backdropFilter: 'blur(10px)',
+              border: '1px solid rgba(124, 106, 247, 0.25)',
+            }}
+            styles={{ body: { padding: '12px 14px' } }}
+          >
+            <Statistic
+              title={<span style={{ fontSize: '0.8rem', color: '#a89af5' }}>Nhớ đúng</span>}
+              value={stats.accuracy !== null ? stats.accuracy : '—'}
+              suffix={stats.accuracy !== null ? '%' : ''}
+              prefix={<AimOutlined style={{ color: '#7c6af7', marginRight: 6, fontSize: '1.1rem' }} />}
+              styles={{ content: { fontSize: '1.6rem', fontWeight: 700, color: '#a89af5' } }}
+            />
+          </Card>
+        </Col>
+      </Row>
+
+      {/* Tiến độ kép hiển thị Đã thuộc & Chờ hỏi */}
+      <Card
+        size="small"
+        style={{
+          borderRadius: 12,
+          background: 'rgba(22, 20, 42, 0.65)',
+          border: '1px solid rgba(255, 255, 255, 0.08)',
+        }}
+        styles={{ body: { padding: '10px 14px' } }}
+      >
+        <Flex vertical gap={6}>
+          <Flex justify="space-between" align="center">
+            <Space size={8}>
+              <Text style={{ fontSize: '0.78rem', color: '#9fa8c7' }}>Tiến độ học:</Text>
+              <Text strong style={{ fontSize: '0.85rem', color: '#2ed573' }}>
+                Đã thuộc: {stats.mastered} ({masteredPct}%)
+              </Text>
+              <Text style={{ color: 'rgba(255,255,255,0.2)' }}>•</Text>
+              <Text strong style={{ fontSize: '0.85rem', color: '#f5a623' }}>
+                Chờ hỏi: {stats.learning} ({learningPct}%)
+              </Text>
+            </Space>
+            <Text strong style={{ fontSize: '0.85rem', color: '#e8eaf6' }}>
+              {stats.mastered}/{stats.total} từ
+            </Text>
+          </Flex>
+
+          <Progress
+            percent={activePct}
+            success={{
+              percent: masteredPct,
+              strokeColor: '#2ed573',
+            }}
+            strokeColor="#f5a623"
+            railColor="rgba(255, 255, 255, 0.08)"
+            showInfo={false}
+            strokeLinecap="round"
+            size={['100%', 10]}
           />
-          <div
-            className="pb-learning"
-            style={{ width: `${learningPct}%`, left: `${masteredPct}%` }}
-            title={`Chờ hỏi: ${stats.learning}`}
-          />
-        </div>
-        <span className="progress-label">{stats.mastered}/{stats.total} từ</span>
-      </div>
+        </Flex>
+      </Card>
     </div>
   );
 }

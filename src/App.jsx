@@ -1,4 +1,11 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
+import { Button, Space, Popconfirm, Flex, Spin, Typography, Result, Card } from 'antd';
+import {
+  UnorderedListOutlined,
+  PlusOutlined,
+  SettingOutlined,
+  ReloadOutlined,
+} from '@ant-design/icons';
 import { useStore } from './store/useStore';
 import { useAuth } from './hooks/useAuth';
 import { useLearningEngine } from './hooks/useLearningEngine';
@@ -26,9 +33,12 @@ export default function App() {
 
   // Current card state
   const [currentCard, setCurrentCard] = useState(null);
-  const [cardsSinceLastQuiz, setCardsSinceLastQuiz] = useState(0);
-  const [pinnedWordId, setPinnedWordId] = useState(null);
+  const [_cardsSinceLastQuiz, setCardsSinceLastQuiz] = useState(0);
+  const [_pinnedWordId, setPinnedWordId] = useState(null);
   const [isTransitioning, setIsTransitioning] = useState(false);
+
+  const cardsSinceLastQuizRef = useRef(0);
+  const pinnedWordIdRef = useRef(null);
 
   // Modals
   const [showList, setShowList] = useState(false);
@@ -51,15 +61,19 @@ export default function App() {
     checkSrsReview();
     setIsTransitioning(true);
     setTimeout(() => {
-      const newCount = afterQuiz ? 0 : cardsSinceLastQuiz + 1;
+      const newCount = afterQuiz ? 0 : cardsSinceLastQuizRef.current + 1;
+      cardsSinceLastQuizRef.current = newCount;
       setCardsSinceLastQuiz(newCount);
-      const pinned = pinnedWordId;
+
+      const pinned = pinnedWordIdRef.current;
+      pinnedWordIdRef.current = null;
       setPinnedWordId(null);
+
       const card = getNextCard(newCount, pinned);
       setCurrentCard(card);
       setIsTransitioning(false);
     }, 300);
-  }, [getNextCard, cardsSinceLastQuiz, pinnedWordId, checkSrsReview]);
+  }, [getNextCard, checkSrsReview]);
 
   // Initial load
   useEffect(() => {
@@ -67,7 +81,7 @@ export default function App() {
       const card = getNextCard(0, null);
       setCurrentCard(card);
     }
-  }, [loading]);
+  }, [loading, getNextCard]);
 
   // Keyboard shortcuts
   useEffect(() => {
@@ -142,10 +156,13 @@ export default function App() {
   };
 
   const handleStudyWord = (word) => {
+    pinnedWordIdRef.current = word.id;
     setPinnedWordId(word.id);
     setTimeout(() => {
       const card = getNextCard(0, word.id);
       setCurrentCard(card);
+      pinnedWordIdRef.current = null;
+      setPinnedWordId(null);
     }, 100);
   };
 
@@ -177,10 +194,10 @@ export default function App() {
 
   if (loading) {
     return (
-      <div className="loading-screen">
-        <div className="loading-spinner"></div>
-        <p>Đang tải...</p>
-      </div>
+      <Flex vertical align="center" justify="center" style={{ minHeight: '100vh', gap: 16 }}>
+        <Spin size="large" />
+        <Typography.Text type="secondary">Đang tải dữ liệu...</Typography.Text>
+      </Flex>
     );
   }
 
@@ -196,26 +213,55 @@ export default function App() {
         <Dashboard />
 
         {/* Controls */}
-        <div className="controls-row">
-          <div className="controls-left">
-            <button className="ctrl-btn" onClick={() => setShowList(true)}>📋 Danh sách</button>
-            <button className="ctrl-btn" onClick={() => setShowAdd(true)}>➕ Thêm từ mới</button>
-            <button className="ctrl-btn" onClick={() => setShowSettings(s => !s)}>⚙️ Cài đặt</button>
-          </div>
+        <Flex justify="space-between" align="center" wrap="wrap" gap={8} className="controls-row">
+          <Space wrap size={8} className="controls-left">
+            <Button
+              icon={<UnorderedListOutlined />}
+              onClick={() => setShowList(true)}
+              style={{ borderRadius: 8 }}
+            >
+              Danh sách
+            </Button>
+            <Button
+              icon={<PlusOutlined />}
+              onClick={() => setShowAdd(true)}
+              style={{ borderRadius: 8 }}
+            >
+              Thêm từ mới
+            </Button>
+            <Button
+              icon={<SettingOutlined />}
+              type={showSettings ? 'primary' : 'default'}
+              onClick={() => setShowSettings(s => !s)}
+              style={{ borderRadius: 8 }}
+            >
+              Cài đặt
+            </Button>
+          </Space>
+
           <div className="controls-right">
-            <button
-              className="ctrl-btn ctrl-btn-danger"
-              onClick={() => {
-                if (confirm('Đặt lại toàn bộ tiến độ học? (Các từ tự thêm vẫn được giữ lại)')) {
-                  resetProgress();
-                  const card = getNextCard(0, null);
-                  setCurrentCard(card);
-                  setCardsSinceLastQuiz(0);
-                }
+            <Popconfirm
+              title="Đặt lại toàn bộ tiến độ học?"
+              description="Các từ tự thêm vẫn được giữ lại sau khi đặt lại."
+              okText="Đặt lại"
+              cancelText="Hủy"
+              okButtonProps={{ danger: true }}
+              onConfirm={() => {
+                resetProgress();
+                cardsSinceLastQuizRef.current = 0;
+                setCardsSinceLastQuiz(0);
+                pinnedWordIdRef.current = null;
+                setPinnedWordId(null);
+                const card = getNextCard(0, null);
+                setCurrentCard(card);
               }}
-            >🔄 Học lại từ đầu</button>
+            >
+              <Button danger icon={<ReloadOutlined />} style={{ borderRadius: 8 }}>
+                Học lại từ đầu
+              </Button>
+            </Popconfirm>
           </div>
-        </div>
+        </Flex>
 
         {showSettings && <FilterBar />}
 
@@ -226,12 +272,30 @@ export default function App() {
           onTouchEnd={handleTouchEnd}
         >
           {currentCard === null && (
-            <div className="all-done-card">
-              <div className="all-done-icon">🏆</div>
-              <h2>Xuất sắc!</h2>
-              <p>Bạn đã hoàn thành tất cả từ vựng trong chủ đề này.</p>
-              <p className="all-done-sub">Hệ thống sẽ tự động đưa từ về ôn lại theo lịch SRS.</p>
-            </div>
+            <Card
+              className="all-done-card"
+              style={{
+                borderRadius: 16,
+                background: 'rgba(22, 20, 42, 0.85)',
+                border: '1px solid rgba(255, 255, 255, 0.1)',
+                textAlign: 'center',
+              }}
+            >
+              <Result
+                icon={<span style={{ fontSize: '3.5rem' }}>🏆</span>}
+                title={<span style={{ color: '#ffffff', fontSize: '1.6rem' }}>Xuất sắc!</span>}
+                subTitle={
+                  <Flex vertical gap={4}>
+                    <Typography.Text type="secondary" style={{ fontSize: '0.95rem' }}>
+                      Bạn đã hoàn thành tất cả từ vựng trong chủ đề này.
+                    </Typography.Text>
+                    <Typography.Text type="secondary" style={{ fontSize: '0.85rem', opacity: 0.8 }}>
+                      Hệ thống sẽ tự động đưa từ về ôn lại theo lịch SRS.
+                    </Typography.Text>
+                  </Flex>
+                }
+              />
+            </Card>
           )}
 
           {currentCard?.type === 'learn' && (

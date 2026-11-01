@@ -29,9 +29,14 @@ html { font-size: 16px; scroll-behavior: smooth; }
 body {
   background: var(--bg);
   color: var(--text);
-  font-family: 'Segoe UI', system-ui, -apple-system, sans-serif;
+  font-family: 'Plus Jakarta Sans', 'Segoe UI', system-ui, -apple-system, sans-serif;
   min-height: 100vh;
   line-height: 1.6;
+}
+
+::selection {
+  background: rgba(124, 106, 247, 0.4);
+  color: #ffffff;
 }
 
 /* ─── Sleek Dark Mode Scrollbars ────────────────────────────────── */
@@ -212,7 +217,44 @@ body {
   padding: 28px;
   position: relative;
   box-shadow: var(--shadow);
+  user-select: text;
+  -webkit-user-select: text;
+}
+.ant-card.card {
+  padding: 0;
+}
+.ant-card.all-done-card {
+  padding: 0;
+}
+
+/* ─── Text Selection Support & Controls ────────────────────────── */
+.card-word,
+.card-content,
+.card-example,
+.example-text,
+.example-vi-text,
+.field-value,
+.vi-text,
+.card-en,
+.quiz-word,
+.quiz-question,
+.quiz-prompt,
+.quiz-feedback {
+  user-select: text;
+  -webkit-user-select: text;
+}
+
+.card-badge,
+.btn-edit-card,
+.btn-speak,
+.btn-speak-example,
+.card-flip-hint,
+.card-actions,
+.btn-understood,
+.btn-mastered-quick,
+.quiz-options {
   user-select: none;
+  -webkit-user-select: none;
 }
 
 .learn-card {
@@ -1928,5 +1970,114 @@ body {
 
   .ai-quick-buttons {
     padding-bottom: 6px;
+  }
+}
+
+/* ─── Multi-Session AI Tutor & Virtual List Styles ─────────────── */
+.ai-modal-layout {
+  display: flex;
+  width: 100%;
+  height: 100%;
+  overflow: hidden;
+  position: relative;
+}
+
+.ai-sidebar {
+  display: flex;
+  flex-direction: column;
+  background: #11121d;
+  border-right: 1px solid rgba(255, 255, 255, 0.08);
+  overflow: hidden;
+  transition: width 0.22s cubic-bezier(0.4, 0, 0.2, 1), min-width 0.22s cubic-bezier(0.4, 0, 0.2, 1);
+  z-index: 10;
+}
+
+.ai-sidebar-header {
+  padding: 14px 12px 10px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+}
+
+.ai-sidebar-list {
+  flex: 1;
+  overflow-y: auto;
+  padding: 10px 10px;
+}
+
+.ai-session-item {
+  position: relative;
+  padding: 10px 12px;
+  border-radius: 10px;
+  margin-bottom: 6px;
+  cursor: pointer;
+  background: rgba(255, 255, 255, 0.02);
+  border: 1px solid rgba(255, 255, 255, 0.05);
+  transition: all 0.18s ease;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.ai-session-item:hover {
+  background: rgba(124, 106, 247, 0.1);
+  border-color: rgba(124, 106, 247, 0.25);
+}
+
+.ai-session-item.active {
+  background: linear-gradient(135deg, rgba(124, 106, 247, 0.24) 0%, rgba(91, 82, 224, 0.16) 100%);
+  border-color: #7c6af7;
+  box-shadow: 0 2px 8px rgba(124, 106, 247, 0.2);
+}
+
+.ai-session-delete-btn {
+  opacity: 0.5;
+  transition: opacity 0.15s ease, transform 0.15s ease;
+}
+
+.ai-session-item:hover .ai-session-delete-btn {
+  opacity: 1;
+}
+
+.ai-chat-main {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  overflow: hidden;
+  background: #0e0f19;
+}
+
+.ai-chat-header {
+  padding: 8px 16px;
+  background: rgba(255, 255, 255, 0.02);
+  border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.ai-virtual-container {
+  flex: 1;
+  min-height: 0;
+  overflow: hidden;
+  position: relative;
+}
+
+.ai-virtual-container .rc-virtual-list-holder {
+  scrollbar-width: thin;
+  scrollbar-color: rgba(255, 255, 255, 0.15) transparent;
+}
+
+.ai-message-row {
+  box-sizing: border-box;
+}
+
+@media (max-width: 680px) {
+  .ai-sidebar {
+    position: absolute;
+    top: 0;
+    left: 0;
+    bottom: 0;
+    box-shadow: 4px 0 16px rgba(0, 0, 0, 0.5);
   }
 }

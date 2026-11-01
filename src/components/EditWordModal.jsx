@@ -1,154 +1,139 @@
-import { useState } from 'react';
+import { useEffect, useMemo } from 'react';
+import { Modal, Form, Input, AutoComplete, Button, Space, Typography, message } from 'antd';
+import { SaveOutlined, CloseOutlined } from '@ant-design/icons';
 import { useStore } from '../store/useStore';
 
-function EditWordForm({ word, onClose, onSaved }) {
+export default function EditWordModal({ word, isOpen, onClose, onSaved }) {
+  const [form] = Form.useForm();
   const updateWord = useStore(s => s.updateWord);
   const getAllWords = useStore(s => s.getAllWords);
 
-  const [wordText, setWordText] = useState(word.word || '');
-  const [topic, setTopic] = useState(word.topic || '');
-  const [vi, setVi] = useState(word.vi || '');
-  const [en, setEn] = useState(word.en || '');
-  const [example, setExample] = useState(word.example || '');
-  const [exampleVi, setExampleVi] = useState(word.exampleVi || '');
-
   // Extract unique topics for autocomplete suggestions
-  const existingTopics = Array.from(new Set(getAllWords().map(w => w.topic).filter(Boolean)));
+  const topicOptions = useMemo(() => {
+    const existingTopics = Array.from(new Set(getAllWords().map(w => w.topic).filter(Boolean)));
+    return existingTopics.map(t => ({ value: t, label: t }));
+  }, [getAllWords]);
 
-  const handleSave = (e) => {
-    e?.preventDefault?.();
-    if (!wordText.trim() || !vi.trim()) {
-      alert('Vui lòng nhập Từ vựng tiếng Anh và Nghĩa tiếng Việt!');
-      return;
+  useEffect(() => {
+    if (word && isOpen) {
+      form.setFieldsValue({
+        word: word.word || '',
+        topic: word.topic || '',
+        vi: word.vi || '',
+        en: word.en || '',
+        example: word.example || '',
+        exampleVi: word.exampleVi || '',
+      });
     }
+  }, [word, isOpen, form]);
 
+  const handleFinish = (values) => {
+    if (!word) return;
     const updatedFields = {
-      word: wordText.trim(),
-      topic: topic.trim() || 'Chung',
-      vi: vi.trim(),
-      en: en.trim(),
-      example: example.trim(),
-      exampleVi: exampleVi.trim(),
+      word: values.word.trim(),
+      topic: values.topic?.trim() || 'Chung',
+      vi: values.vi.trim(),
+      en: values.en?.trim() || '',
+      example: values.example?.trim() || '',
+      exampleVi: values.exampleVi?.trim() || '',
     };
 
     updateWord(word.id, updatedFields);
     onSaved?.(updatedFields);
+    message.success(`Đã cập nhật từ "${updatedFields.word}"!`);
     onClose();
   };
 
   return (
-    <div className="modal-overlay modal-edit-overlay" onClick={onClose}>
-      <div className="modal modal-edit" onClick={e => e.stopPropagation()}>
-        <div className="modal-header">
-          <h2>✏️ Chỉnh sửa từ vựng</h2>
-          <button type="button" className="modal-close" onClick={onClose} title="Đóng">✕</button>
-        </div>
+    <Modal
+      open={isOpen}
+      onCancel={onClose}
+      footer={null}
+      destroyOnHidden
+      width={600}
+      title={
+        <Typography.Title level={4} style={{ margin: 0 }}>
+          ✏️ Chỉnh sửa từ vựng
+        </Typography.Title>
+      }
+    >
+      <Form
+        form={form}
+        layout="vertical"
+        onFinish={handleFinish}
+        requiredMark="optional"
+        style={{ marginTop: 16 }}
+      >
+        <Form.Item
+          name="word"
+          label="Từ vựng / Collocation tiếng Anh"
+          rules={[{ required: true, message: 'Vui lòng nhập từ tiếng Anh!' }]}
+        >
+          <Input placeholder="e.g. acquire a language" autoFocus />
+        </Form.Item>
 
-        <form onSubmit={handleSave} className="edit-modal-form">
-          <div className="form-row">
-            <label htmlFor="edit-word">Từ vựng / Collocation tiếng Anh *</label>
-            <input
-              id="edit-word"
-              type="text"
-              value={wordText}
-              onChange={e => setWordText(e.target.value)}
-              placeholder="e.g. acquire a language"
-              className="form-input"
-              required
-              autoFocus
-            />
-          </div>
+        <Form.Item
+          name="topic"
+          label="Chủ đề (Topic)"
+        >
+          <AutoComplete
+            options={topicOptions}
+            placeholder="Chọn hoặc nhập chủ đề mới..."
+            filterOption={(inputValue, option) =>
+              (option?.value ?? '').toUpperCase().indexOf(inputValue.toUpperCase()) !== -1
+            }
+          />
+        </Form.Item>
 
-          <div className="form-row">
-            <label htmlFor="edit-topic">Chủ đề (Topic)</label>
-            <input
-              id="edit-topic"
-              type="text"
-              list="edit-topic-list"
-              value={topic}
-              onChange={e => setTopic(e.target.value)}
-              placeholder="Chọn hoặc nhập chủ đề..."
-              className="form-input"
-            />
-            <datalist id="edit-topic-list">
-              {existingTopics.map(t => (
-                <option key={t} value={t} />
-              ))}
-            </datalist>
-          </div>
+        <Form.Item
+          name="vi"
+          label="Nghĩa tiếng Việt"
+          rules={[{ required: true, message: 'Vui lòng nhập nghĩa tiếng Việt!' }]}
+        >
+          <Input placeholder="e.g. tiếp thu / học một ngôn ngữ" />
+        </Form.Item>
 
-          <div className="form-row">
-            <label htmlFor="edit-vi">Nghĩa tiếng Việt *</label>
-            <input
-              id="edit-vi"
-              type="text"
-              value={vi}
-              onChange={e => setVi(e.target.value)}
-              placeholder="e.g. tiếp thu / học một ngôn ngữ"
-              className="form-input"
-              required
-            />
-          </div>
+        <Form.Item
+          name="en"
+          label="Định nghĩa tiếng Anh (English Definition)"
+        >
+          <Input.TextArea
+            rows={2}
+            placeholder="e.g. to learn a language naturally through exposure"
+          />
+        </Form.Item>
 
-          <div className="form-row">
-            <label htmlFor="edit-en">Định nghĩa tiếng Anh (English Definition)</label>
-            <textarea
-              id="edit-en"
-              value={en}
-              onChange={e => setEn(e.target.value)}
-              placeholder="e.g. to learn a language naturally through exposure"
-              className="form-input form-textarea"
-              rows={2}
-            />
-          </div>
+        <Form.Item
+          name="example"
+          label="Câu ví dụ tiếng Anh (Example sentence)"
+        >
+          <Input.TextArea
+            rows={2}
+            placeholder="e.g. Children can acquire a second language with remarkable speed."
+          />
+        </Form.Item>
 
-          <div className="form-row">
-            <label htmlFor="edit-example">Câu ví dụ tiếng Anh (Example sentence)</label>
-            <textarea
-              id="edit-example"
-              value={example}
-              onChange={e => setExample(e.target.value)}
-              placeholder="e.g. Children can acquire a second language with remarkable speed."
-              className="form-input form-textarea"
-              rows={2}
-            />
-          </div>
+        <Form.Item
+          name="exampleVi"
+          label="Dịch nghĩa câu ví dụ (Example translation)"
+        >
+          <Input.TextArea
+            rows={2}
+            placeholder="e.g. Trẻ em có thể tiếp thu ngôn ngữ thứ hai với tốc độ đáng kinh ngạc."
+          />
+        </Form.Item>
 
-          <div className="form-row">
-            <label htmlFor="edit-example-vi">Dịch nghĩa câu ví dụ (Example translation)</label>
-            <textarea
-              id="edit-example-vi"
-              value={exampleVi}
-              onChange={e => setExampleVi(e.target.value)}
-              placeholder="e.g. Trẻ em có thể tiếp thu ngôn ngữ thứ hai với tốc độ đáng kinh ngạc."
-              className="form-input form-textarea"
-              rows={2}
-            />
-          </div>
-
-          <div className="edit-modal-footer">
-            <button type="button" className="btn-cancel-edit" onClick={onClose}>
+        <Form.Item style={{ marginBottom: 0, marginTop: 24 }}>
+          <Space style={{ display: 'flex', justifyContent: 'flex-end', width: '100%' }}>
+            <Button onClick={onClose} icon={<CloseOutlined />}>
               Hủy
-            </button>
-            <button type="submit" className="btn-save-edit">
-              💾 Lưu thay đổi
-            </button>
-          </div>
-        </form>
-      </div>
-    </div>
-  );
-}
-
-export default function EditWordModal({ word, isOpen, onClose, onSaved }) {
-  if (!isOpen || !word) return null;
-
-  return (
-    <EditWordForm
-      key={word.id}
-      word={word}
-      onClose={onClose}
-      onSaved={onSaved}
-    />
+            </Button>
+            <Button type="primary" htmlType="submit" icon={<SaveOutlined />}>
+              Lưu thay đổi
+            </Button>
+          </Space>
+        </Form.Item>
+      </Form>
+    </Modal>
   );
 }

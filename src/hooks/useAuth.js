@@ -14,7 +14,12 @@ import {
 } from 'firebase/firestore';
 import { auth, db, googleProvider } from '../firebase';
 import { useStore } from '../store/useStore';
-import { getStoredApiKey, loadStoredChatHistory, getActiveConfig } from '../services/geminiService';
+import {
+  getStoredApiKey,
+  loadStoredChatHistory,
+  loadStoredChatSessions,
+  getActiveConfig,
+} from '../services/geminiService';
 
 export function useAuth() {
   const { setUser, loadFromFirestore, setFirestoreSave } = useStore();
@@ -31,7 +36,8 @@ export function useAuth() {
     customHistory,
     customModelConfig,
     customEditedWords,
-    customDeletedWordIds
+    customDeletedWordIds,
+    customChatSessions
   ) => {
     const user = auth.currentUser;
     if (!user) return;
@@ -45,12 +51,20 @@ export function useAuth() {
       const geminiModelConfig = customModelConfig !== undefined ? customModelConfig : (store.geminiModelConfig || getActiveConfig());
       const editedWords = customEditedWords !== undefined ? customEditedWords : (store.editedWords || {});
       const deletedWordIds = customDeletedWordIds !== undefined ? customDeletedWordIds : (store.deletedWordIds || []);
+      const chatSessions = customChatSessions !== undefined ? customChatSessions : (store.chatSessions || []);
+
+      // Derive fallback aiChatHistory from latest session if empty
+      let fallbackHistory = aiChatHistory;
+      if ((!Array.isArray(fallbackHistory) || fallbackHistory.length === 0) && Array.isArray(chatSessions) && chatSessions.length > 0) {
+        fallbackHistory = chatSessions[0].messages || [];
+      }
 
       await setDoc(doc(db, 'users', user.uid), {
         progress: progress || {},
         customWords: customWords || [],
         geminiApiKey: geminiApiKey || '',
-        aiChatHistory: Array.isArray(aiChatHistory) ? aiChatHistory.slice(-30) : [],
+        aiChatHistory: Array.isArray(fallbackHistory) ? fallbackHistory.slice(-50) : [],
+        aiChatSessions: Array.isArray(chatSessions) ? chatSessions.slice(0, 50) : [],
         geminiModelConfig: geminiModelConfig || null,
         editedWords: editedWords || {},
         deletedWordIds: deletedWordIds || [],
@@ -91,6 +105,7 @@ export function useAuth() {
           const snap = await getDoc(docRef);
           const localKey = (useStore.getState().geminiApiKey || getStoredApiKey() || '').trim();
           const localChat = useStore.getState().aiChatHistory || loadStoredChatHistory() || [];
+          const localSessions = useStore.getState().chatSessions || loadStoredChatSessions() || [];
           const localModelConfig = useStore.getState().geminiModelConfig || getActiveConfig();
 
           if (snap.exists()) {
@@ -107,7 +122,8 @@ export function useAuth() {
                 (Array.isArray(data.aiChatHistory) && data.aiChatHistory.length > 0) ? data.aiChatHistory : localChat,
                 data.geminiModelConfig || localModelConfig,
                 data.editedWords || useStore.getState().editedWords,
-                data.deletedWordIds || useStore.getState().deletedWordIds
+                data.deletedWordIds || useStore.getState().deletedWordIds,
+                (Array.isArray(data.aiChatSessions) && data.aiChatSessions.length > 0) ? data.aiChatSessions : localSessions
               );
             } else {
               // Firestore has key (or neither has key): update local from Firestore
@@ -120,7 +136,8 @@ export function useAuth() {
                   data.aiChatHistory || localChat,
                   localModelConfig,
                   data.editedWords || useStore.getState().editedWords,
-                  data.deletedWordIds || useStore.getState().deletedWordIds
+                  data.deletedWordIds || useStore.getState().deletedWordIds,
+                  (Array.isArray(data.aiChatSessions) && data.aiChatSessions.length > 0) ? data.aiChatSessions : localSessions
                 );
               }
             }
@@ -133,7 +150,8 @@ export function useAuth() {
               localChat,
               localModelConfig,
               useStore.getState().editedWords,
-              useStore.getState().deletedWordIds
+              useStore.getState().deletedWordIds,
+              localSessions
             );
           }
           setSyncStatus('synced');

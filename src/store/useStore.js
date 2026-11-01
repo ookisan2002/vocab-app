@@ -6,6 +6,9 @@ import {
   saveApiKey,
   loadStoredChatHistory,
   saveStoredChatHistory,
+  loadStoredChatSessions,
+  saveStoredChatSessions,
+  formatSessionTitle,
   getActiveConfig,
   setActiveConfig,
 } from '../services/geminiService';
@@ -66,6 +69,8 @@ function initWordState() {
   };
 }
 
+const initialSessions = loadStoredChatSessions();
+
 export const useStore = create((set, get) => ({
   // ─── Auth ───────────────────────────────────────────
   user: null,
@@ -80,16 +85,18 @@ export const useStore = create((set, get) => ({
   // ─── AI Tutor & Gemini ──────────────────────────────
   geminiApiKey: getStoredApiKey(),
   geminiModelConfig: getActiveConfig(),
-  aiChatHistory: loadStoredChatHistory(),
+  chatSessions: initialSessions,
+  activeSessionId: initialSessions.length > 0 ? initialSessions[0].id : null,
+  aiChatHistory: initialSessions.length > 0 ? (initialSessions[0].messages || []) : loadStoredChatHistory(),
 
   setGeminiModelConfig: (config) => {
     if (config?.model) {
       setActiveConfig(config.model, config.apiVersion || 'v1');
     }
     set({ geminiModelConfig: config });
-    const { firestoreSave, progress, customWords, geminiApiKey, aiChatHistory, user } = get();
+    const { firestoreSave, progress, customWords, geminiApiKey, aiChatHistory, user, editedWords, deletedWordIds, chatSessions } = get();
     if (user && firestoreSave) {
-      firestoreSave(progress, customWords, geminiApiKey, aiChatHistory, config);
+      firestoreSave(progress, customWords, geminiApiKey, aiChatHistory, config, editedWords, deletedWordIds, chatSessions);
     }
   },
 
@@ -97,19 +104,166 @@ export const useStore = create((set, get) => ({
     const cleanKey = (key || '').trim();
     saveApiKey(cleanKey);
     set({ geminiApiKey: cleanKey });
-    const { firestoreSave, progress, customWords, aiChatHistory, geminiModelConfig, user } = get();
+    const { firestoreSave, progress, customWords, aiChatHistory, geminiModelConfig, user, editedWords, deletedWordIds, chatSessions } = get();
     if (user && firestoreSave) {
-      firestoreSave(progress, customWords, cleanKey, aiChatHistory, geminiModelConfig);
+      firestoreSave(progress, customWords, cleanKey, aiChatHistory, geminiModelConfig, editedWords, deletedWordIds, chatSessions);
     }
   },
 
+  setChatSessions: (sessions) => {
+    const list = Array.isArray(sessions) ? sessions : [];
+    saveStoredChatSessions(list);
+    let nextActiveId = get().activeSessionId;
+    if (nextActiveId && !list.some(s => s.id === nextActiveId)) {
+      nextActiveId = list.length > 0 ? list[0].id : null;
+    } else if (!nextActiveId && list.length > 0) {
+      nextActiveId = list[0].id;
+    }
+    const activeSession = list.find(s => s.id === nextActiveId);
+    const activeMessages = activeSession ? activeSession.messages : [];
+    set({
+      chatSessions: list,
+      activeSessionId: nextActiveId,
+      aiChatHistory: activeMessages,
+    });
+    const { firestoreSave, progress, customWords, geminiApiKey, geminiModelConfig, editedWords, deletedWordIds } = get();
+    if (firestoreSave) {
+      firestoreSave(
+        progress,
+        customWords,
+        geminiApiKey,
+        activeMessages,
+        geminiModelConfig,
+        editedWords,
+        deletedWordIds,
+        list
+      );
+    }
+  },
+
+  setActiveSessionId: (id) => {
+    const { chatSessions } = get();
+    const session = chatSessions.find(s => s.id === id);
+    const messages = session ? session.messages : [];
+    set({
+      activeSessionId: id,
+      aiChatHistory: messages,
+    });
+  },
+
+  createChatSession: (initialMessage, customTitle) => {
+    const newId = `session_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`;
+    const sessionTitle = (customTitle || '').trim() || formatSessionTitle(new Date());
+    const messages = initialMessage ? [initialMessage] : [];
+    const newSession = {
+      id: newId,
+      title: sessionTitle,
+      createdAt: Date.now(),
+      updatedAt: Date.now(),
+      messages,
+    };
+    set(state => {
+      const updatedSessions = [newSession, ...(state.chatSessions || [])];
+      saveStoredChatSessions(updatedSessions);
+      if (state.firestoreSave) {
+        state.firestoreSave(
+          state.progress,
+          state.customWords,
+          state.geminiApiKey,
+          messages,
+          state.geminiModelConfig,
+          state.editedWords,
+          state.deletedWordIds,
+          updatedSessions
+        );
+      }
+      return {
+        chatSessions: updatedSessions,
+        activeSessionId: newId,
+        aiChatHistory: messages,
+      };
+    });
+    return newSession;
+  },
+
+  deleteChatSession: (id) => {
+    set(state => {
+      const filtered = (state.chatSessions || []).filter(s => s.id !== id);
+      saveStoredChatSessions(filtered);
+      let nextActiveId = state.activeSessionId;
+      if (state.activeSessionId === id) {
+        nextActiveId = filtered.length > 0 ? filtered[0].id : null;
+      }
+      const nextSession = filtered.find(s => s.id === nextActiveId);
+      const nextMessages = nextSession ? nextSession.messages : [];
+      if (state.firestoreSave) {
+        state.firestoreSave(
+          state.progress,
+          state.customWords,
+          state.geminiApiKey,
+          nextMessages,
+          state.geminiModelConfig,
+          state.editedWords,
+          state.deletedWordIds,
+          filtered
+        );
+      }
+      return {
+        chatSessions: filtered,
+        activeSessionId: nextActiveId,
+        aiChatHistory: nextMessages,
+      };
+    });
+  },
+
+  updateActiveSessionMessages: (messagesOrUpdater) => {
+    set(state => {
+      const activeId = state.activeSessionId;
+      if (!activeId) return {};
+      const currentSession = (state.chatSessions || []).find(s => s.id === activeId);
+      const currentMessages = currentSession?.messages || [];
+      const newMessages = typeof messagesOrUpdater === 'function'
+        ? messagesOrUpdater(currentMessages)
+        : messagesOrUpdater;
+      const trimmed = Array.isArray(newMessages) ? newMessages.slice(-50) : [];
+      const updatedSessions = (state.chatSessions || []).map(s => {
+        if (s.id === activeId) {
+          return {
+            ...s,
+            messages: trimmed,
+            updatedAt: Date.now(),
+          };
+        }
+        return s;
+      });
+      saveStoredChatSessions(updatedSessions);
+      if (state.firestoreSave) {
+        state.firestoreSave(
+          state.progress,
+          state.customWords,
+          state.geminiApiKey,
+          trimmed,
+          state.geminiModelConfig,
+          state.editedWords,
+          state.deletedWordIds,
+          updatedSessions
+        );
+      }
+      return {
+        chatSessions: updatedSessions,
+        aiChatHistory: trimmed,
+      };
+    });
+  },
+
   setAiChatHistory: (messages) => {
-    const trimmed = Array.isArray(messages) ? messages.slice(-30) : [];
+    const trimmed = Array.isArray(messages) ? messages.slice(-50) : [];
     saveStoredChatHistory(trimmed);
-    set({ aiChatHistory: trimmed });
-    const { firestoreSave, progress, customWords, geminiApiKey, user } = get();
-    if (user && firestoreSave) {
-      firestoreSave(progress, customWords, geminiApiKey, trimmed);
+    const { activeSessionId } = get();
+    if (activeSessionId) {
+      get().updateActiveSessionMessages(trimmed);
+    } else {
+      set({ aiChatHistory: trimmed });
     }
   },
 
@@ -173,7 +327,18 @@ export const useStore = create((set, get) => ({
       };
       saveLocalProgress(newProgress);
       // Trigger Firestore save if logged in
-      if (state.firestoreSave) state.firestoreSave(newProgress, state.customWords, state.geminiApiKey, state.aiChatHistory);
+      if (state.firestoreSave) {
+        state.firestoreSave(
+          newProgress,
+          state.customWords,
+          state.geminiApiKey,
+          state.aiChatHistory,
+          state.geminiModelConfig,
+          state.editedWords,
+          state.deletedWordIds,
+          state.chatSessions
+        );
+      }
       return { progress: newProgress };
     });
   },
@@ -219,7 +384,7 @@ export const useStore = create((set, get) => ({
   },
 
   handleQuizAnswer: (wordId, correct) => {
-    const { getWordState, updateWordState, markMastered, srsMode, addHistory, getAllWords, addQuizResult } = get();
+    const { getWordState, updateWordState, markMastered, addHistory, getAllWords, addQuizResult } = get();
     const ws = getWordState(wordId);
     const word = getAllWords().find(w => w.id === wordId);
     addQuizResult(correct);
@@ -251,7 +416,7 @@ export const useStore = create((set, get) => ({
 
   // SRS check: move mastered words back to learning if due
   checkSrsReview: () => {
-    const { progress, updateWordState, srsMode } = get();
+    const { progress, updateWordState } = get();
     const now = Date.now();
     Object.entries(progress).forEach(([id, ws]) => {
       if (ws.status === 'mastered' && ws.nextReviewAt && ws.nextReviewAt <= now) {
@@ -276,7 +441,8 @@ export const useStore = create((set, get) => ({
           state.aiChatHistory,
           state.geminiModelConfig,
           state.editedWords,
-          state.deletedWordIds
+          state.deletedWordIds,
+          state.chatSessions
         );
       }
       return { customWords: newCustom };
@@ -307,7 +473,8 @@ export const useStore = create((set, get) => ({
           state.aiChatHistory,
           state.geminiModelConfig,
           newEdited,
-          state.deletedWordIds
+          state.deletedWordIds,
+          state.chatSessions
         );
       }
 
@@ -343,7 +510,8 @@ export const useStore = create((set, get) => ({
           state.aiChatHistory,
           state.geminiModelConfig,
           newEdited,
-          newDeleted
+          newDeleted,
+          state.chatSessions
         );
       }
 
@@ -380,7 +548,8 @@ export const useStore = create((set, get) => ({
           state.aiChatHistory,
           state.geminiModelConfig,
           newEdited,
-          newDeleted
+          newDeleted,
+          state.chatSessions
         );
       }
 
@@ -403,7 +572,8 @@ export const useStore = create((set, get) => ({
           state.aiChatHistory,
           state.geminiModelConfig,
           state.editedWords,
-          state.deletedWordIds
+          state.deletedWordIds,
+          state.chatSessions
         );
       }
       return { progress: newProgress, sessionCorrect: 0, sessionTotal: 0, history: [] };
@@ -412,7 +582,16 @@ export const useStore = create((set, get) => ({
 
   loadFromFirestore: (data) => {
     if (!data) return;
-    const { progress, customWords, geminiApiKey, aiChatHistory, geminiModelConfig, editedWords, deletedWordIds } = data;
+    const {
+      progress,
+      customWords,
+      geminiApiKey,
+      aiChatHistory,
+      aiChatSessions,
+      geminiModelConfig,
+      editedWords,
+      deletedWordIds,
+    } = data;
     if (progress) {
       saveLocalProgress(progress);
     }
@@ -439,14 +618,38 @@ export const useStore = create((set, get) => ({
       saveApiKey(geminiApiKey.trim());
       updates.geminiApiKey = geminiApiKey.trim();
     }
-    if (Array.isArray(aiChatHistory)) {
-      saveStoredChatHistory(aiChatHistory);
-      updates.aiChatHistory = aiChatHistory;
-    }
     if (geminiModelConfig?.model) {
       setActiveConfig(geminiModelConfig.model, geminiModelConfig.apiVersion || 'v1');
       updates.geminiModelConfig = geminiModelConfig;
     }
+
+    if (Array.isArray(aiChatSessions) && aiChatSessions.length > 0) {
+      saveStoredChatSessions(aiChatSessions);
+      updates.chatSessions = aiChatSessions;
+      const currentActive = get().activeSessionId;
+      if (!currentActive || !aiChatSessions.some(s => s.id === currentActive)) {
+        updates.activeSessionId = aiChatSessions[0].id;
+      }
+      const activeSession = aiChatSessions.find(s => s.id === (updates.activeSessionId || currentActive)) || aiChatSessions[0];
+      updates.aiChatHistory = activeSession?.messages || [];
+      saveStoredChatHistory(updates.aiChatHistory);
+    } else if (Array.isArray(aiChatHistory) && aiChatHistory.length > 0) {
+      saveStoredChatHistory(aiChatHistory);
+      updates.aiChatHistory = aiChatHistory;
+      if (!get().chatSessions || get().chatSessions.length === 0) {
+        const fallbackSession = {
+          id: `session_${Date.now()}_legacy`,
+          title: formatSessionTitle(new Date()),
+          createdAt: Date.now(),
+          updatedAt: Date.now(),
+          messages: aiChatHistory.slice(-50),
+        };
+        saveStoredChatSessions([fallbackSession]);
+        updates.chatSessions = [fallbackSession];
+        updates.activeSessionId = fallbackSession.id;
+      }
+    }
+
     set(updates);
   },
 
