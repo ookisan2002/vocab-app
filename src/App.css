@@ -271,7 +271,65 @@ body {
 .field-label { font-size: 0.75rem; color: var(--text3); font-weight: 600; text-transform: uppercase; letter-spacing: 0.05em; margin-right: 8px; }
 .field-value { font-size: 1rem; color: var(--text2); }
 .vi-text { font-size: 1.25rem; font-weight: 600; color: var(--text); }
-.example-text { font-style: italic; color: var(--text2); }
+
+/* ─── Example Sentences (LearnCard & QuizCard) ──────────────────── */
+.card-example {
+  border-radius: 10px;
+  padding: 12px 14px;
+  background: rgba(124, 106, 247, 0.08);
+  border: 1px solid rgba(124, 106, 247, 0.25);
+  margin-top: 10px;
+}
+.card-example-header,
+.feedback-example-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 6px;
+}
+.example-text {
+  font-size: 0.92rem;
+  line-height: 1.5;
+  font-style: italic;
+  color: var(--text);
+}
+.example-keyword {
+  font-weight: 700;
+  color: #ffda79;
+  background: rgba(255, 218, 121, 0.12);
+  padding: 1px 4px;
+  border-radius: 4px;
+}
+.btn-speak-example {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  background: rgba(124, 106, 247, 0.16);
+  border: 1px solid rgba(124, 106, 247, 0.35);
+  color: #c4beff;
+  border-radius: 20px;
+  padding: 3px 10px;
+  font-size: 0.76rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+.btn-speak-example:hover {
+  background: rgba(124, 106, 247, 0.35);
+  border-color: var(--accent);
+  color: #ffffff;
+  transform: translateY(-1px);
+}
+.btn-speak-example:active {
+  transform: translateY(0);
+}
+.feedback-example {
+  border-radius: 10px;
+  padding: 12px 14px;
+  background: rgba(0, 0, 0, 0.22);
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  margin-top: 10px;
+}
 
 .card-actions { display: flex; flex-direction: column; gap: 10px; }
 .btn-understood {
@@ -341,7 +399,7 @@ body {
   font-size: 0.8rem; cursor: pointer; transition: background 0.15s;
 }
 .btn-speak-inline:hover { background: rgba(255,255,255,0.2); }
-.feedback-meaning, .feedback-example { color: var(--text2); font-size: 0.85rem; }
+.feedback-meaning { color: var(--text2); font-size: 0.85rem; }
 .feedback-correct-ans { font-weight: 700; font-size: 1.1rem; color: #ff8585; margin-top: 2px; }
 .feedback-note { font-size: 0.8rem; opacity: 0.85; font-style: italic; }
 
@@ -484,6 +542,13 @@ body {
 .status-unseen { background: var(--bg3); color: var(--text3); }
 .status-learning { background: rgba(245,200,66,0.15); color: var(--yellow); }
 .status-mastered { background: var(--green-bg); color: var(--green); }
+.word-row-example {
+  font-size: 0.78rem;
+  font-style: italic;
+  color: var(--text3);
+  margin-top: 3px;
+  line-height: 1.4;
+}
 .word-row-times { display: flex; gap: 12px; flex-wrap: wrap; }
 .time-ago { font-size: 0.72rem; color: var(--text3); }
 .time-review { font-size: 0.72rem; color: var(--accent); }

@@ -1,6 +1,10 @@
 import { useState } from 'react';
 import { speakText } from '../utils/srs';
 import { useStore } from '../store/useStore';
+import { renderHighlightedExample } from '../utils/exampleHighlight';
+
+// Re-export for backward compatibility and test access
+export { renderHighlightedExample, getSearchRegex } from '../utils/exampleHighlight';
 
 export default function LearnCard({ word, onUnderstood, onMastered }) {
   const showMeaningFirst = useStore(s => s.showMeaningFirst);
@@ -48,13 +52,20 @@ export default function LearnCard({ word, onUnderstood, onMastered }) {
           )}
           {word.example && (
             <div className="card-example">
-              <span className="field-label">Example:</span>
-              <span className="field-value example-text">"{word.example}"</span>
-              <button
-                className="btn-speak-sm"
-                onClick={() => speakText(word.example)}
-                title="Đọc câu ví dụ"
-              >🔊</button>
+              <div className="card-example-header">
+                <span className="field-label">💬 Câu ví dụ (Example)</span>
+                <button
+                  type="button"
+                  className="btn-speak-example"
+                  onClick={e => { e.stopPropagation(); speakText(word.example); }}
+                  title="Nghe phát âm câu ví dụ"
+                >
+                  🔊 Nghe câu
+                </button>
+              </div>
+              <div className="field-value example-text">
+                "{renderHighlightedExample(word.example, word.word)}"
+              </div>
             </div>
           )}
         </div>

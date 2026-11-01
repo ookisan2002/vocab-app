@@ -65,6 +65,9 @@ export default function VocabListModal({ onClose, onStudyWord }) {
                     <span className="word-row-vi">{w.vi}</span>
                     <span className={`word-row-status ${status.cls}`}>{status.text}</span>
                   </div>
+                  {w.example && (
+                    <div className="word-row-example">💬 "{w.example}"</div>
+                  )}
                   <div className="word-row-times">
                     {timeAgo && <span className="time-ago">Đã học: {timeAgo}</span>}
                     {timeUntilReview !== null && ws.status === 'mastered' && (

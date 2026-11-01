@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react';
 import { speakText } from '../utils/srs';
+import { renderHighlightedExample } from '../utils/exampleHighlight';
 
 export default function QuizCard({ question, word, onAnswer, onNext }) {
   const [selected, setSelected] = useState(null);
@@ -101,12 +102,20 @@ export default function QuizCard({ question, word, onAnswer, onNext }) {
           )}
           {word.example && (
             <div className="feedback-example">
-              <span className="field-label">Example:</span> "{word.example}"
-              <button
-                className="btn-speak-sm"
-                onClick={() => speakText(word.example)}
-                title="Đọc câu ví dụ"
-              >🔊</button>
+              <div className="feedback-example-header">
+                <span className="field-label">💬 Câu ví dụ:</span>
+                <button
+                  type="button"
+                  className="btn-speak-example"
+                  onClick={() => speakText(word.example)}
+                  title="Nghe phát âm câu ví dụ"
+                >
+                  🔊 Nghe câu
+                </button>
+              </div>
+              <div className="example-text">
+                "{renderHighlightedExample(word.example, word.word)}"
+              </div>
             </div>
           )}
 
