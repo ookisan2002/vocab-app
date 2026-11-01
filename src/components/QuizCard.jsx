@@ -116,6 +116,12 @@ export default function QuizCard({ question, word, onAnswer, onNext }) {
               <div className="example-text">
                 "{renderHighlightedExample(word.example, word.word)}"
               </div>
+              {word.exampleVi && (
+                <div className="example-vi-text">
+                  <span className="example-vi-label">Dịch:</span>
+                  <span>{word.exampleVi}</span>
+                </div>
+              )}
             </div>
           )}
 

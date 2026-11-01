@@ -330,6 +330,28 @@ body {
   border: 1px solid rgba(255, 255, 255, 0.14);
   margin-top: 10px;
 }
+.example-vi-text {
+  font-size: 0.85rem;
+  line-height: 1.45;
+  color: var(--text2);
+  margin-top: 6px;
+  padding-top: 6px;
+  border-top: 1px dashed rgba(255, 255, 255, 0.1);
+  display: flex;
+  align-items: flex-start;
+  gap: 6px;
+}
+.example-vi-label {
+  font-size: 0.7rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  color: #38bdf8;
+  background: rgba(56, 189, 248, 0.12);
+  padding: 1px 6px;
+  border-radius: 4px;
+  flex-shrink: 0;
+  margin-top: 1px;
+}
 
 .card-actions { display: flex; flex-direction: column; gap: 10px; }
 .btn-understood {
@@ -548,6 +570,13 @@ body {
   color: var(--text3);
   margin-top: 3px;
   line-height: 1.4;
+}
+.word-row-example-vi {
+  font-size: 0.74rem;
+  color: var(--text3);
+  margin-top: 2px;
+  padding-left: 14px;
+  font-style: normal;
 }
 .word-row-times { display: flex; gap: 12px; flex-wrap: wrap; }
 .time-ago { font-size: 0.72rem; color: var(--text3); }

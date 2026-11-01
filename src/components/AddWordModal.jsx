@@ -1,4 +1,4 @@
-import { useState, useRef } from 'react';
+import { useState } from 'react';
 import { useStore } from '../store/useStore';
 import Papa from 'papaparse';
 
@@ -25,14 +25,15 @@ function parseBulkText(text) {
     const word = sepMatch[1].trim();
     const rest = sepMatch[2].trim();
 
-    // Split rest by | to get vi | en | example
+    // Split rest by | to get vi | en | example | exampleVi
     const parts = rest.split('|').map(p => p.trim());
     const vi = parts[0] || '';
     const en = parts[1] || '';
     const example = parts[2] || '';
+    const exampleVi = parts[3] || '';
 
     if (word && vi) {
-      words.push({ id: generateId(), word, topic: currentTopic, vi, en, example });
+      words.push({ id: generateId(), word, topic: currentTopic, vi, en, example, exampleVi });
     }
   }
   return words;
@@ -54,6 +55,7 @@ export default function AddWordModal({ onClose }) {
   const [vi, setVi] = useState('');
   const [en, setEn] = useState('');
   const [example, setExample] = useState('');
+  const [exampleVi, setExampleVi] = useState('');
   const [note, setNote] = useState('');
 
   // Bulk mode
@@ -108,6 +110,7 @@ export default function AddWordModal({ onClose }) {
           vi: (r.vi || r['nghĩa'] || r['vietnamese'] || r['nghia'] || '').trim(),
           en: (r.en || r['definition'] || r['english definition'] || '').trim(),
           example: (r.example || r['câu ví dụ'] || r['sentence'] || '').trim(),
+          exampleVi: (r.examplevi || r['example_vi'] || r['dịch ví dụ'] || r['dich vi du'] || r['câu ví dụ tiếng việt'] || '').trim(),
         }))
         .filter(r => r.word && r.vi);
       setSheetPreview(parsed);
@@ -131,6 +134,7 @@ export default function AddWordModal({ onClose }) {
       vi: vi.trim(),
       en: en.trim(),
       example: example.trim(),
+      exampleVi: exampleVi.trim(),
       note: note.trim(),
     };
     addCustomWords([newWord]);
@@ -211,6 +215,10 @@ export default function AddWordModal({ onClose }) {
               <input type="text" value={example} onChange={e => setExample(e.target.value)} className="form-input" placeholder="e.g. She uses critical thinking..." />
             </div>
             <div className="form-row">
+              <label>Dịch câu ví dụ (tùy chọn)</label>
+              <input type="text" value={exampleVi} onChange={e => setExampleVi(e.target.value)} className="form-input" placeholder="e.g. Cô ấy áp dụng tư duy phản biện hàng ngày..." />
+            </div>
+            <div className="form-row">
               <label>Ghi chú</label>
               <input type="text" value={note} onChange={e => setNote(e.target.value)} className="form-input" placeholder="Tùy chọn" />
             </div>
@@ -223,8 +231,8 @@ export default function AddWordModal({ onClose }) {
             <div className="bulk-hint">
               <strong>Định dạng:</strong><br />
               <code>### Tên chủ đề</code><br />
-              <code>Từ tiếng Anh — Nghĩa Việt | Definition | Example sentence</code><br />
-              <small>Dấu phân cách: <code>— – - = :</code> &nbsp;|&nbsp; Dấu <code>|</code> để tách definition và example</small>
+              <code>Từ tiếng Anh — Nghĩa Việt | Definition | Example sentence | Dịch câu ví dụ</code><br />
+              <small>Dấu phân cách: <code>— – - = :</code> &nbsp;|&nbsp; Dấu <code>|</code> để tách definition, example và dịch ví dụ</small>
             </div>
             <textarea
               className="bulk-textarea"

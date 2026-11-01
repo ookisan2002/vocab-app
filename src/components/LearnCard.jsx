@@ -66,6 +66,12 @@ export default function LearnCard({ word, onUnderstood, onMastered }) {
               <div className="field-value example-text">
                 "{renderHighlightedExample(word.example, word.word)}"
               </div>
+              {word.exampleVi && (
+                <div className="example-vi-text">
+                  <span className="example-vi-label">Dịch:</span>
+                  <span>{word.exampleVi}</span>
+                </div>
+              )}
             </div>
           )}
         </div>

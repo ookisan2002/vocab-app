@@ -19,16 +19,16 @@ export const PROJECT_KNOWLEDGE = `
 2. QUY CHUẨN ĐỊNH DẠNG NHẬP HÀNG LOẠT (BULK IMPORT FORMAT):
 - Cấu trúc nhóm chủ đề: Bắt đầu bằng dòng "### Tên chủ đề" (Ví dụ: ### Environment & Ecology).
 - Cấu trúc mỗi dòng từ vựng:
-  Từ tiếng Anh — Nghĩa tiếng Việt | Giải nghĩa tiếng Anh | Câu ví dụ ngữ cảnh
+  Từ tiếng Anh — Nghĩa tiếng Việt | Giải nghĩa tiếng Anh | Câu ví dụ ngữ cảnh | Dịch câu ví dụ tiếng Việt
 - Ký tự phân cách:
   * Từ tiếng Anh và Nghĩa tiếng Việt: dấu gạch ngang " — " (hỗ trợ cả —, –, -, =, :)
-  * Giữa Nghĩa tiếng Việt, Giải nghĩa tiếng Anh, và Ví dụ ngữ cảnh: dấu gạch đứng " | "
+  * Giữa Nghĩa tiếng Việt, Giải nghĩa tiếng Anh, Câu ví dụ ngữ cảnh và Dịch câu ví dụ: dấu gạch đứng " | "
 - Ví dụ mẫu chuẩn 100%:
 \`\`\`text
 ### Artificial Intelligence
-machine learning — học máy | a branch of AI focused on building applications that learn from data | Machine learning is rapidly transforming healthcare.
-deep learning — học sâu | a subset of machine learning based on artificial neural networks | Deep learning powers modern voice and facial recognition systems.
-natural language processing — xử lý ngôn ngữ tự nhiên | the ability of a computer program to understand human language | Natural language processing enables virtual assistants like Siri to understand voice commands.
+machine learning — học máy | a branch of AI focused on building applications that learn from data | Machine learning is rapidly transforming healthcare. | Học máy đang nhanh chóng làm thay đổi lĩnh vực chăm sóc sức khỏe.
+deep learning — học sâu | a subset of machine learning based on artificial neural networks | Deep learning powers modern voice and facial recognition systems. | Học sâu là nền tảng vận hành các hệ thống nhận diện giọng nói và khuôn mặt hiện đại.
+natural language processing — xử lý ngôn ngữ tự nhiên | the ability of a computer program to understand human language | Natural language processing enables virtual assistants like Siri to understand voice commands. | Xử lý ngôn ngữ tự nhiên cho phép các trợ lý ảo như Siri hiểu được các khẩu lệnh bằng giọng nói.
 \`\`\`
 
 3. QUY TẮC CỐT LÕI CHO AI KHI TẠO TỪ MỚI (CORE INSTRUCTION FOR VOCABULARY GENERATION):
