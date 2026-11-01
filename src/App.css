@@ -224,6 +224,37 @@ body {
   border: 1px solid rgba(245, 166, 35, 0.3);
 }
 
+.card-header-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 8px;
+  width: 100%;
+}
+.card-header-row .card-badge {
+  margin-bottom: 0;
+}
+.btn-edit-card {
+  background: rgba(255, 255, 255, 0.06);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  color: var(--text2);
+  font-size: 0.78rem;
+  font-weight: 500;
+  padding: 4px 10px;
+  border-radius: 8px;
+  cursor: pointer;
+  transition: all 0.15s ease;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+.btn-edit-card:hover {
+  background: rgba(124, 106, 247, 0.2);
+  color: #fff;
+  border-color: rgba(124, 106, 247, 0.5);
+  transform: translateY(-1px);
+}
+
 .card-badge {
   display: inline-block;
   padding: 4px 12px; border-radius: 20px;
@@ -532,8 +563,31 @@ body {
 .modal-header {
   display: flex; justify-content: space-between; align-items: center;
   padding: 20px 24px; border-bottom: 1px solid var(--border);
+  gap: 12px;
 }
-.modal-header h2 { font-size: 1.1rem; font-weight: 700; }
+.modal-header-title-group {
+  display: flex; align-items: center; gap: 12px; flex-wrap: wrap;
+}
+.modal-header h2 { font-size: 1.1rem; font-weight: 700; margin: 0; }
+.btn-restore-defaults {
+  padding: 5px 12px;
+  background: rgba(239, 68, 68, 0.12);
+  border: 1px solid rgba(239, 68, 68, 0.3);
+  color: #f87171;
+  border-radius: 8px;
+  cursor: pointer;
+  font-size: 0.78rem;
+  font-weight: 600;
+  transition: all 0.15s ease;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+.btn-restore-defaults:hover {
+  background: #ef4444;
+  color: #fff;
+  border-color: #ef4444;
+}
 .modal-close {
   background: none; border: none; color: var(--text2);
   cursor: pointer; font-size: 1.2rem; padding: 4px 8px;
@@ -564,6 +618,17 @@ body {
 .status-unseen { background: var(--bg3); color: var(--text3); }
 .status-learning { background: rgba(245,200,66,0.15); color: var(--yellow); }
 .status-mastered { background: var(--green-bg); color: var(--green); }
+.badge-edited {
+  background: rgba(245, 166, 35, 0.18);
+  color: #f5a623;
+  border: 1px solid rgba(245, 166, 35, 0.35);
+  font-size: 0.72rem;
+  padding: 2px 7px;
+  border-radius: 10px;
+  font-weight: 600;
+  display: inline-flex;
+  align-items: center;
+}
 .word-row-example {
   font-size: 0.78rem;
   font-style: italic;
@@ -589,12 +654,113 @@ body {
   transition: all 0.15s; white-space: nowrap;
 }
 .btn-study-now:hover { background: var(--accent); color: #fff; }
-.btn-delete {
-  background: none; border: none; cursor: pointer;
-  font-size: 1rem; padding: 4px 8px; border-radius: 6px;
-  transition: background 0.15s;
+.btn-edit {
+  padding: 6px 10px;
+  background: rgba(59, 130, 246, 0.12);
+  border: 1px solid rgba(59, 130, 246, 0.3);
+  color: #60a5fa;
+  border-radius: 8px;
+  cursor: pointer;
+  font-size: 0.8rem;
+  font-weight: 500;
+  transition: all 0.15s;
+  white-space: nowrap;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
 }
-.btn-delete:hover { background: var(--red-bg); }
+.btn-edit:hover {
+  background: #3b82f6;
+  color: #fff;
+  border-color: #3b82f6;
+}
+.btn-delete {
+  padding: 6px 10px;
+  background: rgba(239, 68, 68, 0.1);
+  border: 1px solid rgba(239, 68, 68, 0.25);
+  color: #f87171;
+  cursor: pointer;
+  font-size: 0.8rem;
+  font-weight: 500;
+  border-radius: 8px;
+  transition: all 0.15s;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  white-space: nowrap;
+}
+.btn-delete:hover {
+  background: #ef4444;
+  color: #fff;
+  border-color: #ef4444;
+}
+
+/* ─── Edit Word Modal ───────────────────────────────────────────── */
+.modal-edit-overlay {
+  z-index: 260;
+  align-items: center;
+}
+.modal-edit {
+  max-height: 88vh;
+  max-width: 620px;
+  border-radius: 16px;
+  margin: auto;
+  animation: popIn 0.22s cubic-bezier(0.16, 1, 0.3, 1);
+}
+.edit-modal-form {
+  padding: 20px 24px;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+.form-textarea {
+  resize: vertical;
+  min-height: 54px;
+  line-height: 1.45;
+  font-family: inherit;
+}
+.edit-modal-footer {
+  display: flex;
+  justify-content: flex-end;
+  gap: 10px;
+  padding-top: 10px;
+  border-top: 1px solid var(--border);
+  margin-top: 4px;
+}
+.btn-save-edit {
+  padding: 9px 18px;
+  background: var(--accent);
+  color: #fff;
+  border: none;
+  border-radius: 8px;
+  font-size: 0.88rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.15s ease;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+.btn-save-edit:hover {
+  opacity: 0.92;
+  transform: translateY(-1px);
+  box-shadow: 0 4px 12px rgba(124, 106, 247, 0.35);
+}
+.btn-cancel-edit {
+  padding: 9px 16px;
+  background: var(--bg3);
+  color: var(--text2);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  font-size: 0.88rem;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+.btn-cancel-edit:hover {
+  color: var(--text);
+  background: rgba(255, 255, 255, 0.08);
+}
 
 /* ─── Add Modal ─────────────────────────────────────────────────── */
 .modal-add { max-height: 90vh; }

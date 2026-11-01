@@ -9,6 +9,7 @@ import LearnCard from './components/LearnCard';
 import QuizCard from './components/QuizCard';
 import VocabListModal from './components/VocabListModal';
 import AddWordModal from './components/AddWordModal';
+import EditWordModal from './components/EditWordModal';
 import HistoryBar from './components/HistoryBar';
 import AiTutorModal from './components/AiTutorModal';
 import './App.css';
@@ -33,6 +34,9 @@ export default function App() {
   const [showList, setShowList] = useState(false);
   const [showAdd, setShowAdd] = useState(false);
   const [showSettings, setShowSettings] = useState(false);
+  const [editingWord, setEditingWord] = useState(null);
+
+  const deletedWordIds = useStore(s => s.deletedWordIds);
 
   // SRS background check every 3 seconds
   useEffect(() => {
@@ -145,6 +149,25 @@ export default function App() {
     }, 100);
   };
 
+  const handleWordSaved = (updatedFields) => {
+    if (currentCard?.word?.id && editingWord && currentCard.word.id === editingWord.id) {
+      setCurrentCard(prev => {
+        if (!prev || !prev.word || prev.word.id !== editingWord.id) return prev;
+        return {
+          ...prev,
+          word: { ...prev.word, ...updatedFields },
+        };
+      });
+    }
+  };
+
+  // If the word currently shown on card is deleted, advance immediately
+  useEffect(() => {
+    if (currentCard?.word?.id && deletedWordIds?.includes(currentCard.word.id)) {
+      advance(false);
+    }
+  }, [deletedWordIds, currentCard, advance]);
+
   const handleAddClose = (firstWord) => {
     setShowAdd(false);
     if (firstWord) {
@@ -217,6 +240,7 @@ export default function App() {
               word={currentCard.word}
               onUnderstood={handleUnderstood}
               onMastered={handleMastered}
+              onEditWord={(w) => setEditingWord(w)}
             />
           )}
 
@@ -238,10 +262,18 @@ export default function App() {
         <VocabListModal
           onClose={() => setShowList(false)}
           onStudyWord={handleStudyWord}
+          onEditWord={(w) => setEditingWord(w)}
         />
       )}
 
       {showAdd && <AddWordModal onClose={handleAddClose} />}
+
+      <EditWordModal
+        word={editingWord}
+        isOpen={!!editingWord}
+        onClose={() => setEditingWord(null)}
+        onSaved={handleWordSaved}
+      />
 
       <AiTutorModal currentWord={currentCard?.word} />
     </div>

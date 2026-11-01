@@ -12,6 +12,8 @@ import {
 
 const LOCAL_KEY = 'vocab_progress_local';
 const CUSTOM_WORDS_KEY = 'vocab_custom_words';
+const LOCAL_EDITED_WORDS_KEY = 'vocab_edited_words';
+const LOCAL_DELETED_WORDS_KEY = 'vocab_deleted_word_ids';
 
 function loadLocalProgress() {
   try {
@@ -25,12 +27,32 @@ function loadCustomWords() {
   } catch { return []; }
 }
 
+function loadLocalEditedWords() {
+  try {
+    return JSON.parse(localStorage.getItem(LOCAL_EDITED_WORDS_KEY) || '{}');
+  } catch { return {}; }
+}
+
+function loadLocalDeletedWordIds() {
+  try {
+    return JSON.parse(localStorage.getItem(LOCAL_DELETED_WORDS_KEY) || '[]');
+  } catch { return []; }
+}
+
 function saveLocalProgress(progress) {
   localStorage.setItem(LOCAL_KEY, JSON.stringify(progress));
 }
 
 function saveCustomWords(words) {
   localStorage.setItem(CUSTOM_WORDS_KEY, JSON.stringify(words));
+}
+
+function saveLocalEditedWords(editedWords) {
+  localStorage.setItem(LOCAL_EDITED_WORDS_KEY, JSON.stringify(editedWords));
+}
+
+function saveLocalDeletedWordIds(deletedWordIds) {
+  localStorage.setItem(LOCAL_DELETED_WORDS_KEY, JSON.stringify(deletedWordIds));
 }
 
 // Initial word state
@@ -51,6 +73,8 @@ export const useStore = create((set, get) => ({
 
   // ─── Vocabulary ─────────────────────────────────────
   customWords: loadCustomWords(),
+  editedWords: loadLocalEditedWords(),
+  deletedWordIds: loadLocalDeletedWordIds(),
   progress: loadLocalProgress(), // { wordId: { status, correctStreak, srsStage, lastReviewedAt, nextReviewAt } }
 
   // ─── AI Tutor & Gemini ──────────────────────────────
@@ -90,8 +114,18 @@ export const useStore = create((set, get) => ({
   },
 
   getAllWords: () => {
-    const { customWords } = get();
-    return [...DEFAULT_VOCAB, ...customWords];
+    const { customWords, editedWords, deletedWordIds } = get();
+    const deletedSet = new Set(deletedWordIds || []);
+
+    const processedDefaults = DEFAULT_VOCAB
+      .filter(w => !deletedSet.has(w.id))
+      .map(w => (editedWords[w.id] ? { ...w, ...editedWords[w.id] } : w));
+
+    const processedCustom = customWords
+      .filter(w => !deletedSet.has(w.id))
+      .map(w => (editedWords[w.id] ? { ...w, ...editedWords[w.id] } : w));
+
+    return [...processedDefaults, ...processedCustom];
   },
 
   getWordState: (id) => {
@@ -229,25 +263,131 @@ export const useStore = create((set, get) => ({
     });
   },
 
-  // ─── Custom words ─────────────────────────────────────
+  // ─── Custom words & Word Modifications ───────────────
   addCustomWords: (words) => {
     set(state => {
       const newCustom = [...state.customWords, ...words];
       saveCustomWords(newCustom);
-      if (state.firestoreSave) state.firestoreSave(state.progress, newCustom, state.geminiApiKey, state.aiChatHistory);
+      if (state.firestoreSave) {
+        state.firestoreSave(
+          state.progress,
+          newCustom,
+          state.geminiApiKey,
+          state.aiChatHistory,
+          state.geminiModelConfig,
+          state.editedWords,
+          state.deletedWordIds
+        );
+      }
       return { customWords: newCustom };
     });
   },
 
-  deleteCustomWord: (id) => {
+  updateWord: (id, updatedFields) => {
     set(state => {
-      const newCustom = state.customWords.filter(w => w.id !== id);
+      const currentEdited = state.editedWords || {};
+      const newEdited = {
+        ...currentEdited,
+        [id]: { ...(currentEdited[id] || {}), ...updatedFields },
+      };
+      saveLocalEditedWords(newEdited);
+
+      // If it is in customWords, update customWords directly
+      let newCustom = state.customWords;
+      if (state.customWords.some(w => w.id === id)) {
+        newCustom = state.customWords.map(w => (w.id === id ? { ...w, ...updatedFields } : w));
+        saveCustomWords(newCustom);
+      }
+
+      if (state.firestoreSave) {
+        state.firestoreSave(
+          state.progress,
+          newCustom,
+          state.geminiApiKey,
+          state.aiChatHistory,
+          state.geminiModelConfig,
+          newEdited,
+          state.deletedWordIds
+        );
+      }
+
+      return {
+        editedWords: newEdited,
+        customWords: newCustom,
+      };
+    });
+  },
+
+  deleteWord: (id) => {
+    set(state => {
+      const currentDeleted = state.deletedWordIds || [];
+      const newDeleted = currentDeleted.includes(id) ? currentDeleted : [...currentDeleted, id];
+      saveLocalDeletedWordIds(newDeleted);
+
+      const newCustom = (state.customWords || []).filter(w => w.id !== id);
+      saveCustomWords(newCustom);
+
       const newProgress = { ...state.progress };
       delete newProgress[id];
       saveLocalProgress(newProgress);
-      saveCustomWords(newCustom);
-      if (state.firestoreSave) state.firestoreSave(newProgress, newCustom, state.geminiApiKey, state.aiChatHistory);
-      return { customWords: newCustom, progress: newProgress };
+
+      const newEdited = { ...(state.editedWords || {}) };
+      delete newEdited[id];
+      saveLocalEditedWords(newEdited);
+
+      if (state.firestoreSave) {
+        state.firestoreSave(
+          newProgress,
+          newCustom,
+          state.geminiApiKey,
+          state.aiChatHistory,
+          state.geminiModelConfig,
+          newEdited,
+          newDeleted
+        );
+      }
+
+      return {
+        deletedWordIds: newDeleted,
+        customWords: newCustom,
+        progress: newProgress,
+        editedWords: newEdited,
+      };
+    });
+  },
+
+  deleteCustomWord: (id) => {
+    get().deleteWord(id);
+  },
+
+  restoreAllDefaults: () => {
+    set(state => {
+      const defaultIds = new Set(DEFAULT_VOCAB.map(w => w.id));
+      const newDeleted = (state.deletedWordIds || []).filter(id => !defaultIds.has(id));
+      const newEdited = { ...(state.editedWords || {}) };
+      defaultIds.forEach(id => {
+        delete newEdited[id];
+      });
+
+      saveLocalDeletedWordIds(newDeleted);
+      saveLocalEditedWords(newEdited);
+
+      if (state.firestoreSave) {
+        state.firestoreSave(
+          state.progress,
+          state.customWords,
+          state.geminiApiKey,
+          state.aiChatHistory,
+          state.geminiModelConfig,
+          newEdited,
+          newDeleted
+        );
+      }
+
+      return {
+        deletedWordIds: newDeleted,
+        editedWords: newEdited,
+      };
     });
   },
 
@@ -255,24 +395,46 @@ export const useStore = create((set, get) => ({
     set(state => {
       const newProgress = {};
       saveLocalProgress(newProgress);
-      if (state.firestoreSave) state.firestoreSave(newProgress, state.customWords, state.geminiApiKey, state.aiChatHistory);
+      if (state.firestoreSave) {
+        state.firestoreSave(
+          newProgress,
+          state.customWords,
+          state.geminiApiKey,
+          state.aiChatHistory,
+          state.geminiModelConfig,
+          state.editedWords,
+          state.deletedWordIds
+        );
+      }
       return { progress: newProgress, sessionCorrect: 0, sessionTotal: 0, history: [] };
     });
   },
 
   loadFromFirestore: (data) => {
     if (!data) return;
-    const { progress, customWords, geminiApiKey, aiChatHistory, geminiModelConfig } = data;
+    const { progress, customWords, geminiApiKey, aiChatHistory, geminiModelConfig, editedWords, deletedWordIds } = data;
     if (progress) {
       saveLocalProgress(progress);
     }
     if (customWords) {
       saveCustomWords(customWords);
     }
+    if (editedWords && typeof editedWords === 'object') {
+      saveLocalEditedWords(editedWords);
+    }
+    if (Array.isArray(deletedWordIds)) {
+      saveLocalDeletedWordIds(deletedWordIds);
+    }
     const updates = {
       progress: progress || {},
       customWords: customWords || [],
     };
+    if (editedWords && typeof editedWords === 'object') {
+      updates.editedWords = editedWords;
+    }
+    if (Array.isArray(deletedWordIds)) {
+      updates.deletedWordIds = deletedWordIds;
+    }
     if (typeof geminiApiKey === 'string' && geminiApiKey.trim()) {
       saveApiKey(geminiApiKey.trim());
       updates.geminiApiKey = geminiApiKey.trim();

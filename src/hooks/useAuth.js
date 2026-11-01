@@ -24,7 +24,15 @@ export function useAuth() {
   const unsubscribeSnapshot = useRef(null);
 
   // Firestore save function
-  const saveToFirestore = async (customProgress, customWordsList, customApiKey, customHistory, customModelConfig) => {
+  const saveToFirestore = async (
+    customProgress,
+    customWordsList,
+    customApiKey,
+    customHistory,
+    customModelConfig,
+    customEditedWords,
+    customDeletedWordIds
+  ) => {
     const user = auth.currentUser;
     if (!user) return;
     setSyncStatus('syncing');
@@ -35,6 +43,8 @@ export function useAuth() {
       const geminiApiKey = customApiKey !== undefined ? customApiKey : (store.geminiApiKey || '');
       const aiChatHistory = customHistory !== undefined ? customHistory : (store.aiChatHistory || []);
       const geminiModelConfig = customModelConfig !== undefined ? customModelConfig : (store.geminiModelConfig || getActiveConfig());
+      const editedWords = customEditedWords !== undefined ? customEditedWords : (store.editedWords || {});
+      const deletedWordIds = customDeletedWordIds !== undefined ? customDeletedWordIds : (store.deletedWordIds || []);
 
       await setDoc(doc(db, 'users', user.uid), {
         progress: progress || {},
@@ -42,6 +52,8 @@ export function useAuth() {
         geminiApiKey: geminiApiKey || '',
         aiChatHistory: Array.isArray(aiChatHistory) ? aiChatHistory.slice(-30) : [],
         geminiModelConfig: geminiModelConfig || null,
+        editedWords: editedWords || {},
+        deletedWordIds: deletedWordIds || [],
         updatedAt: Date.now(),
       }, { merge: true });
       setSyncStatus('synced');
@@ -93,7 +105,9 @@ export function useAuth() {
                 data.customWords || useStore.getState().customWords,
                 localKey,
                 (Array.isArray(data.aiChatHistory) && data.aiChatHistory.length > 0) ? data.aiChatHistory : localChat,
-                data.geminiModelConfig || localModelConfig
+                data.geminiModelConfig || localModelConfig,
+                data.editedWords || useStore.getState().editedWords,
+                data.deletedWordIds || useStore.getState().deletedWordIds
               );
             } else {
               // Firestore has key (or neither has key): update local from Firestore
@@ -104,7 +118,9 @@ export function useAuth() {
                   data.customWords || useStore.getState().customWords,
                   remoteKey || localKey,
                   data.aiChatHistory || localChat,
-                  localModelConfig
+                  localModelConfig,
+                  data.editedWords || useStore.getState().editedWords,
+                  data.deletedWordIds || useStore.getState().deletedWordIds
                 );
               }
             }
@@ -115,7 +131,9 @@ export function useAuth() {
               useStore.getState().customWords,
               localKey,
               localChat,
-              localModelConfig
+              localModelConfig,
+              useStore.getState().editedWords,
+              useStore.getState().deletedWordIds
             );
           }
           setSyncStatus('synced');

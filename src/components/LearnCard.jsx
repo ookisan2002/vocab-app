@@ -6,7 +6,7 @@ import { renderHighlightedExample } from '../utils/exampleHighlight';
 // Re-export for backward compatibility and test access
 export { renderHighlightedExample, getSearchRegex } from '../utils/exampleHighlight';
 
-export default function LearnCard({ word, onUnderstood, onMastered }) {
+export default function LearnCard({ word, onUnderstood, onMastered, onEditWord }) {
   const showMeaningFirst = useStore(s => s.showMeaningFirst);
   const [flipped, setFlipped] = useState(showMeaningFirst);
 
@@ -21,7 +21,20 @@ export default function LearnCard({ word, onUnderstood, onMastered }) {
 
   return (
     <div className="card learn-card">
-      <div className="card-badge learn-badge">📖 Từ mới</div>
+      <div className="card-header-row">
+        <div className="card-badge learn-badge">📖 Từ mới</div>
+        <button
+          type="button"
+          className="btn-edit-card"
+          onClick={(e) => {
+            e.stopPropagation();
+            onEditWord?.(word);
+          }}
+          title="Chỉnh sửa từ này"
+        >
+          ✏️ Sửa từ
+        </button>
+      </div>
       <div className="card-topic">{word.topic}</div>
 
       <div className="card-word" onClick={handleFlip}>
