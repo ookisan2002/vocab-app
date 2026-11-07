@@ -7,6 +7,7 @@ import {
   Tag,
   Tooltip,
   Modal,
+  Segmented,
 } from 'antd';
 import {
   SyncOutlined,
@@ -28,7 +29,13 @@ const GoogleIcon = () => (
   </svg>
 );
 
-export default function Header({ onSignIn, onSignOut, syncStatus }) {
+export default function Header({
+  onSignIn,
+  onSignOut,
+  syncStatus,
+  activeTab = 'learn',
+  onTabChange,
+}) {
   const user = useStore(s => s.user);
   const [showConfirmSignOut, setShowConfirmSignOut] = useState(false);
 
@@ -66,6 +73,38 @@ export default function Header({ onSignIn, onSignOut, syncStatus }) {
               </Flex>
             </Flex>
           </Flex>
+
+          {/* Navigation Tab Switcher */}
+          {onTabChange && (
+            <Segmented
+              value={activeTab}
+              onChange={onTabChange}
+              options={[
+                {
+                  label: (
+                    <span style={{ padding: '0 8px', fontWeight: 600, fontSize: '0.86rem' }}>
+                      📖 Học từ vựng
+                    </span>
+                  ),
+                  value: 'learn',
+                },
+                {
+                  label: (
+                    <span style={{ padding: '0 8px', fontWeight: 600, fontSize: '0.86rem' }}>
+                      📝 Bài kiểm tra AI
+                    </span>
+                  ),
+                  value: 'exam',
+                },
+              ]}
+              style={{
+                background: 'rgba(255, 255, 255, 0.06)',
+                borderRadius: 12,
+                padding: 3,
+                border: '1px solid rgba(255, 255, 255, 0.08)',
+              }}
+            />
+          )}
 
           {/* User profile / Sign in button */}
           <Flex align="center" gap={12}>

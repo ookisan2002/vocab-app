@@ -19,6 +19,7 @@ import AddWordModal from './components/AddWordModal';
 import EditWordModal from './components/EditWordModal';
 import HistoryBar from './components/HistoryBar';
 import AiTutorModal from './components/AiTutorModal';
+import ExamPage from './components/Exam/ExamPage';
 import './App.css';
 
 export default function App() {
@@ -30,6 +31,9 @@ export default function App() {
   const resetProgress = useStore(s => s.resetProgress);
 
   const { getNextCard } = useLearningEngine();
+
+  // Navigation tab: 'learn' | 'exam'
+  const [viewMode, setViewMode] = useState('learn');
 
   // Current card state
   const [currentCard, setCurrentCard] = useState(null);
@@ -86,6 +90,7 @@ export default function App() {
   // Keyboard shortcuts
   useEffect(() => {
     const handleKey = (e) => {
+      if (viewMode !== 'learn') return;
       if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA') return;
 
       if (e.key === 'Enter') {
@@ -114,7 +119,7 @@ export default function App() {
     };
     window.addEventListener('keydown', handleKey);
     return () => window.removeEventListener('keydown', handleKey);
-  }, [currentCard, advance]);
+  }, [currentCard, advance, viewMode]);
 
   // Touch swipe
   const touchStartX = useRef(null);
@@ -207,120 +212,130 @@ export default function App() {
         onSignIn={signInWithGoogle}
         onSignOut={signOutUser}
         syncStatus={syncStatus}
+        activeTab={viewMode}
+        onTabChange={setViewMode}
       />
 
-      <main className="main-content">
-        <Dashboard />
+      {viewMode === 'exam' ? (
+        <main className="main-content" style={{ maxWidth: 960, margin: '0 auto', width: '100%', padding: '16px 12px' }}>
+          <ExamPage onBackToStudy={() => setViewMode('learn')} />
+        </main>
+      ) : (
+        <>
+          <main className="main-content">
+            <Dashboard />
 
-        {/* Controls */}
-        <Flex justify="space-between" align="center" wrap="wrap" gap={8} className="controls-row">
-          <Space wrap size={8} className="controls-left">
-            <Button
-              icon={<UnorderedListOutlined />}
-              onClick={() => setShowList(true)}
-              style={{ borderRadius: 8 }}
+            {/* Controls */}
+            <Flex justify="space-between" align="center" wrap="wrap" gap={8} className="controls-row">
+              <Space wrap size={8} className="controls-left">
+                <Button
+                  icon={<UnorderedListOutlined />}
+                  onClick={() => setShowList(true)}
+                  style={{ borderRadius: 8 }}
+                >
+                  Danh sách
+                </Button>
+                <Button
+                  icon={<PlusOutlined />}
+                  onClick={() => setShowAdd(true)}
+                  style={{ borderRadius: 8 }}
+                >
+                  Thêm từ mới
+                </Button>
+                <Button
+                  icon={<SettingOutlined />}
+                  type={showSettings ? 'primary' : 'default'}
+                  onClick={() => setShowSettings(s => !s)}
+                  style={{ borderRadius: 8 }}
+                >
+                  Cài đặt
+                </Button>
+              </Space>
+
+              <div className="controls-right">
+                <Popconfirm
+                  title="Đặt lại toàn bộ tiến độ học?"
+                  description="Các từ tự thêm vẫn được giữ lại sau khi đặt lại."
+                  okText="Đặt lại"
+                  cancelText="Hủy"
+                  okButtonProps={{ danger: true }}
+                  onConfirm={() => {
+                    resetProgress();
+                    cardsSinceLastQuizRef.current = 0;
+                    setCardsSinceLastQuiz(0);
+                    pinnedWordIdRef.current = null;
+                    setPinnedWordId(null);
+                    const card = getNextCard(0, null);
+                    setCurrentCard(card);
+                  }}
+                >
+                  <Button danger icon={<ReloadOutlined />} style={{ borderRadius: 8 }}>
+                    Học lại từ đầu
+                  </Button>
+                </Popconfirm>
+              </div>
+            </Flex>
+
+            {showSettings && <FilterBar />}
+
+            {/* Main card area */}
+            <div
+              className={`card-area ${isTransitioning ? 'fade-out' : 'fade-in'}`}
+              onTouchStart={handleTouchStart}
+              onTouchEnd={handleTouchEnd}
             >
-              Danh sách
-            </Button>
-            <Button
-              icon={<PlusOutlined />}
-              onClick={() => setShowAdd(true)}
-              style={{ borderRadius: 8 }}
-            >
-              Thêm từ mới
-            </Button>
-            <Button
-              icon={<SettingOutlined />}
-              type={showSettings ? 'primary' : 'default'}
-              onClick={() => setShowSettings(s => !s)}
-              style={{ borderRadius: 8 }}
-            >
-              Cài đặt
-            </Button>
-          </Space>
+              {currentCard === null && (
+                <Card
+                  className="all-done-card"
+                  style={{
+                    borderRadius: 16,
+                    background: 'rgba(22, 20, 42, 0.85)',
+                    border: '1px solid rgba(255, 255, 255, 0.1)',
+                    textAlign: 'center',
+                  }}
+                >
+                  <Result
+                    icon={<span style={{ fontSize: '3.5rem' }}>🏆</span>}
+                    title={<span style={{ color: '#ffffff', fontSize: '1.6rem' }}>Xuất sắc!</span>}
+                    subTitle={
+                      <Flex vertical gap={4}>
+                        <Typography.Text type="secondary" style={{ fontSize: '0.95rem' }}>
+                          Bạn đã hoàn thành tất cả từ vựng trong chủ đề này.
+                        </Typography.Text>
+                        <Typography.Text type="secondary" style={{ fontSize: '0.85rem', opacity: 0.8 }}>
+                          Hệ thống sẽ tự động đưa từ về ôn lại theo lịch SRS.
+                        </Typography.Text>
+                      </Flex>
+                    }
+                  />
+                </Card>
+              )}
 
-          <div className="controls-right">
-            <Popconfirm
-              title="Đặt lại toàn bộ tiến độ học?"
-              description="Các từ tự thêm vẫn được giữ lại sau khi đặt lại."
-              okText="Đặt lại"
-              cancelText="Hủy"
-              okButtonProps={{ danger: true }}
-              onConfirm={() => {
-                resetProgress();
-                cardsSinceLastQuizRef.current = 0;
-                setCardsSinceLastQuiz(0);
-                pinnedWordIdRef.current = null;
-                setPinnedWordId(null);
-                const card = getNextCard(0, null);
-                setCurrentCard(card);
-              }}
-            >
-              <Button danger icon={<ReloadOutlined />} style={{ borderRadius: 8 }}>
-                Học lại từ đầu
-              </Button>
-            </Popconfirm>
-          </div>
-        </Flex>
+              {currentCard?.type === 'learn' && (
+                <LearnCard
+                  key={currentCard.word.id + '-learn'}
+                  word={currentCard.word}
+                  onUnderstood={handleUnderstood}
+                  onMastered={handleMastered}
+                  onEditWord={(w) => setEditingWord(w)}
+                />
+              )}
 
-        {showSettings && <FilterBar />}
+              {currentCard?.type === 'quiz' && (
+                <QuizCard
+                  key={currentCard.word.id + '-' + currentCard.question?.direction}
+                  question={currentCard.question}
+                  word={currentCard.word}
+                  onAnswer={handleQuizAnswered}
+                  onNext={handleNextQuiz}
+                />
+              )}
+            </div>
+          </main>
 
-        {/* Main card area */}
-        <div
-          className={`card-area ${isTransitioning ? 'fade-out' : 'fade-in'}`}
-          onTouchStart={handleTouchStart}
-          onTouchEnd={handleTouchEnd}
-        >
-          {currentCard === null && (
-            <Card
-              className="all-done-card"
-              style={{
-                borderRadius: 16,
-                background: 'rgba(22, 20, 42, 0.85)',
-                border: '1px solid rgba(255, 255, 255, 0.1)',
-                textAlign: 'center',
-              }}
-            >
-              <Result
-                icon={<span style={{ fontSize: '3.5rem' }}>🏆</span>}
-                title={<span style={{ color: '#ffffff', fontSize: '1.6rem' }}>Xuất sắc!</span>}
-                subTitle={
-                  <Flex vertical gap={4}>
-                    <Typography.Text type="secondary" style={{ fontSize: '0.95rem' }}>
-                      Bạn đã hoàn thành tất cả từ vựng trong chủ đề này.
-                    </Typography.Text>
-                    <Typography.Text type="secondary" style={{ fontSize: '0.85rem', opacity: 0.8 }}>
-                      Hệ thống sẽ tự động đưa từ về ôn lại theo lịch SRS.
-                    </Typography.Text>
-                  </Flex>
-                }
-              />
-            </Card>
-          )}
-
-          {currentCard?.type === 'learn' && (
-            <LearnCard
-              key={currentCard.word.id + '-learn'}
-              word={currentCard.word}
-              onUnderstood={handleUnderstood}
-              onMastered={handleMastered}
-              onEditWord={(w) => setEditingWord(w)}
-            />
-          )}
-
-          {currentCard?.type === 'quiz' && (
-            <QuizCard
-              key={currentCard.word.id + '-' + currentCard.question?.direction}
-              question={currentCard.question}
-              word={currentCard.word}
-              onAnswer={handleQuizAnswered}
-              onNext={handleNextQuiz}
-            />
-          )}
-        </div>
-      </main>
-
-      <HistoryBar />
+          <HistoryBar />
+        </>
+      )}
 
       {showList && (
         <VocabListModal

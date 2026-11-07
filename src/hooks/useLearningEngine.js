@@ -48,11 +48,18 @@ export function useLearningEngine(_pinnedWordId = null) {
       return { type: 'learn', word };
     }
 
+    const now = Date.now();
     const unseen = currentFilteredWords.filter(w => {
       const ws = progress[w.id];
       return !ws || ws.status === 'unseen';
     });
-    const learning = currentFilteredWords.filter(w => progress[w.id]?.status === 'learning');
+    const learning = currentFilteredWords.filter(w => {
+      const ws = progress[w.id];
+      if (!ws) return false;
+      if (ws.status === 'learning') return true;
+      if (ws.status === 'tested' && ws.nextReviewAt && ws.nextReviewAt <= now) return true;
+      return false;
+    });
 
     // Determine quiz frequency
     const mode = INTERLEAVE_MODES[currentInterleaveMode] || INTERLEAVE_MODES.balanced;

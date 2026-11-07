@@ -17,6 +17,54 @@ const LOCAL_KEY = 'vocab_progress_local';
 const CUSTOM_WORDS_KEY = 'vocab_custom_words';
 const LOCAL_EDITED_WORDS_KEY = 'vocab_edited_words';
 const LOCAL_DELETED_WORDS_KEY = 'vocab_deleted_word_ids';
+const EXAM_SETTINGS_KEY = 'vocab_exam_settings';
+const EXAM_HISTORY_KEY = 'vocab_exam_history';
+
+export const DEFAULT_EXAM_SETTINGS = {
+  wordCount: 10,
+  selectionMode: 'random', // 'random' | 'due_or_oldest' | 'manual'
+  topicFilter: 'all',
+  enabledTypes: ['fill_blank', 'reorder', 'translate'],
+  timerMode: 'none', // 'none' | 'countdown'
+  manualWordIds: [],
+};
+
+export function loadStoredExamHistory() {
+  try {
+    const saved = localStorage.getItem(EXAM_HISTORY_KEY);
+    const parsed = saved ? JSON.parse(saved) : [];
+    return Array.isArray(parsed) ? parsed.slice(0, 30) : [];
+  } catch (e) {
+    console.error('Failed to load exam history:', e);
+    return [];
+  }
+}
+
+export function saveStoredExamHistory(history) {
+  try {
+    const list = Array.isArray(history) ? history.slice(0, 30) : [];
+    localStorage.setItem(EXAM_HISTORY_KEY, JSON.stringify(list));
+  } catch (e) {
+    console.error('Failed to save exam history:', e);
+  }
+}
+
+function loadStoredExamSettings() {
+  try {
+    const saved = localStorage.getItem(EXAM_SETTINGS_KEY);
+    return saved ? { ...DEFAULT_EXAM_SETTINGS, ...JSON.parse(saved) } : DEFAULT_EXAM_SETTINGS;
+  } catch {
+    return DEFAULT_EXAM_SETTINGS;
+  }
+}
+
+function saveStoredExamSettings(settings) {
+  try {
+    localStorage.setItem(EXAM_SETTINGS_KEY, JSON.stringify(settings));
+  } catch (e) {
+    console.error('Failed to save exam settings:', e);
+  }
+}
 
 function loadLocalProgress() {
   try {
@@ -61,7 +109,7 @@ function saveLocalDeletedWordIds(deletedWordIds) {
 // Initial word state
 function initWordState() {
   return {
-    status: 'unseen', // 'unseen' | 'learning' | 'mastered'
+    status: 'unseen', // 'unseen' | 'learning' | 'mastered' | 'tested'
     correctStreak: 0, // 0, 1, or 2 (needs 2 for mastered)
     srsStage: 0,
     lastReviewedAt: null,
@@ -300,6 +348,82 @@ export const useStore = create((set, get) => ({
   topicFilter: 'all',
   setTopicFilter: (t) => set({ topicFilter: t }),
 
+  // ─── Exam Settings (IELTS Exam Arena) ───────────────
+  examSettings: loadStoredExamSettings(),
+  setExamSettings: (settingsOrUpdater) => {
+    set(state => {
+      const newSettings = typeof settingsOrUpdater === 'function'
+        ? settingsOrUpdater(state.examSettings)
+        : { ...state.examSettings, ...settingsOrUpdater };
+      saveStoredExamSettings(newSettings);
+      if (state.firestoreSave) {
+        state.firestoreSave(
+          state.progress,
+          state.customWords,
+          state.geminiApiKey,
+          state.aiChatHistory,
+          state.geminiModelConfig,
+          state.editedWords,
+          state.deletedWordIds,
+          state.chatSessions,
+          newSettings,
+          state.examHistory
+        );
+      }
+      return { examSettings: newSettings };
+    });
+  },
+
+  // ─── Exam History (AI Exam Feedback History) ─────────
+  examHistory: loadStoredExamHistory(),
+
+  saveExamHistoryRecord: (record) => {
+    if (!record || !record.id) return;
+    set(state => {
+      const current = state.examHistory || [];
+      const trimmed = [record, ...current.filter(r => r.id !== record.id)].slice(0, 30);
+      saveStoredExamHistory(trimmed);
+      if (state.firestoreSave) {
+        state.firestoreSave(
+          state.progress,
+          state.customWords,
+          state.geminiApiKey,
+          state.aiChatHistory,
+          state.geminiModelConfig,
+          state.editedWords,
+          state.deletedWordIds,
+          state.chatSessions,
+          state.examSettings,
+          trimmed
+        );
+      }
+      return { examHistory: trimmed };
+    });
+  },
+
+  deleteExamHistoryRecord: (recordId) => {
+    set(state => {
+      const current = state.examHistory || [];
+      const trimmed = current.filter(r => r.id !== recordId).slice(0, 30);
+      saveStoredExamHistory(trimmed);
+      if (state.firestoreSave) {
+        state.firestoreSave(
+          state.progress,
+          state.customWords,
+          state.geminiApiKey,
+          state.aiChatHistory,
+          state.geminiModelConfig,
+          state.editedWords,
+          state.deletedWordIds,
+          state.chatSessions,
+          state.examSettings,
+          trimmed
+        );
+      }
+      return { examHistory: trimmed };
+    });
+  },
+
   // ─── Firestore sync handler (set by App.jsx) ─────────
   firestoreSave: null,
   setFirestoreSave: (fn) => set({ firestoreSave: fn }),
@@ -414,17 +538,85 @@ export const useStore = create((set, get) => ({
     }
   },
 
-  // SRS check: move mastered words back to learning if due
+  // SRS check: move mastered/tested words back to learning if due
   checkSrsReview: () => {
     const { progress, updateWordState } = get();
     const now = Date.now();
     Object.entries(progress).forEach(([id, ws]) => {
-      if (ws.status === 'mastered' && ws.nextReviewAt && ws.nextReviewAt <= now) {
+      if ((ws.status === 'mastered' || ws.status === 'tested') && ws.nextReviewAt && ws.nextReviewAt <= now) {
         updateWordState(id, {
           status: 'learning',
           correctStreak: 1, // only needs 1 more correct
         });
       }
+    });
+  },
+
+  // ─── Exam Arena actions ──────────────────────────────
+  recordExamResults: (results) => {
+    if (!Array.isArray(results) || results.length === 0) return;
+    set(state => {
+      const newProgress = { ...state.progress };
+      const now = Date.now();
+      const allWords = state.getAllWords();
+      const newHistory = [...(state.history || [])];
+
+      results.forEach(res => {
+        const { wordId, isPass, score } = res;
+        const currentWs = newProgress[wordId] || initWordState();
+        const wordObj = allWords.find(w => w.id === wordId);
+
+        if (isPass) {
+          newProgress[wordId] = {
+            ...currentWs,
+            status: 'tested',
+            nextReviewAt: now + 14 * 24 * 60 * 60 * 1000, // 14 days
+            srsStage: (currentWs.srsStage || 0) + 1,
+            lastReviewedAt: now,
+          };
+          newHistory.unshift({
+            type: 'tested_pass',
+            word: wordObj?.word || wordId,
+            score: score !== undefined ? score : 10,
+            time: now,
+          });
+        } else {
+          newProgress[wordId] = {
+            ...currentWs,
+            status: 'learning',
+            correctStreak: 0,
+            srsStage: 0,
+            nextReviewAt: now,
+            lastReviewedAt: now,
+          };
+          newHistory.unshift({
+            type: 'tested_fail',
+            word: wordObj?.word || wordId,
+            score: score !== undefined ? score : 0,
+            time: now,
+          });
+        }
+      });
+
+      saveLocalProgress(newProgress);
+      if (state.firestoreSave) {
+        state.firestoreSave(
+          newProgress,
+          state.customWords,
+          state.geminiApiKey,
+          state.aiChatHistory,
+          state.geminiModelConfig,
+          state.editedWords,
+          state.deletedWordIds,
+          state.chatSessions,
+          state.examSettings
+        );
+      }
+
+      return {
+        progress: newProgress,
+        history: newHistory.slice(0, 10),
+      };
     });
   },
 
@@ -591,7 +783,17 @@ export const useStore = create((set, get) => ({
       geminiModelConfig,
       editedWords,
       deletedWordIds,
+      examSettings,
+      examHistory,
     } = data;
+    if (examSettings && typeof examSettings === 'object') {
+      const mergedSettings = { ...DEFAULT_EXAM_SETTINGS, ...examSettings };
+      saveStoredExamSettings(mergedSettings);
+    }
+    if (Array.isArray(examHistory)) {
+      const trimmedHistory = examHistory.slice(0, 30);
+      saveStoredExamHistory(trimmedHistory);
+    }
     if (progress) {
       saveLocalProgress(progress);
     }
@@ -613,6 +815,12 @@ export const useStore = create((set, get) => ({
     }
     if (Array.isArray(deletedWordIds)) {
       updates.deletedWordIds = deletedWordIds;
+    }
+    if (examSettings && typeof examSettings === 'object') {
+      updates.examSettings = { ...DEFAULT_EXAM_SETTINGS, ...examSettings };
+    }
+    if (Array.isArray(examHistory)) {
+      updates.examHistory = examHistory.slice(0, 30);
     }
     if (typeof geminiApiKey === 'string' && geminiApiKey.trim()) {
       saveApiKey(geminiApiKey.trim());

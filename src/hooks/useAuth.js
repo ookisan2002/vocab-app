@@ -37,7 +37,9 @@ export function useAuth() {
     customModelConfig,
     customEditedWords,
     customDeletedWordIds,
-    customChatSessions
+    customChatSessions,
+    customExamSettings,
+    customExamHistory
   ) => {
     const user = auth.currentUser;
     if (!user) return;
@@ -52,6 +54,8 @@ export function useAuth() {
       const editedWords = customEditedWords !== undefined ? customEditedWords : (store.editedWords || {});
       const deletedWordIds = customDeletedWordIds !== undefined ? customDeletedWordIds : (store.deletedWordIds || []);
       const chatSessions = customChatSessions !== undefined ? customChatSessions : (store.chatSessions || []);
+      const examSettings = customExamSettings !== undefined ? customExamSettings : store.examSettings;
+      const examHistory = customExamHistory !== undefined ? customExamHistory : (store.examHistory || []);
 
       // Derive fallback aiChatHistory from latest session if empty
       let fallbackHistory = aiChatHistory;
@@ -68,6 +72,8 @@ export function useAuth() {
         geminiModelConfig: geminiModelConfig || null,
         editedWords: editedWords || {},
         deletedWordIds: deletedWordIds || [],
+        examSettings: examSettings || null,
+        examHistory: Array.isArray(examHistory) ? examHistory.slice(0, 30) : [],
         updatedAt: Date.now(),
       }, { merge: true });
       setSyncStatus('synced');
@@ -123,7 +129,9 @@ export function useAuth() {
                 data.geminiModelConfig || localModelConfig,
                 data.editedWords || useStore.getState().editedWords,
                 data.deletedWordIds || useStore.getState().deletedWordIds,
-                (Array.isArray(data.aiChatSessions) && data.aiChatSessions.length > 0) ? data.aiChatSessions : localSessions
+                (Array.isArray(data.aiChatSessions) && data.aiChatSessions.length > 0) ? data.aiChatSessions : localSessions,
+                data.examSettings || useStore.getState().examSettings,
+                (Array.isArray(data.examHistory) && data.examHistory.length > 0) ? data.examHistory : (useStore.getState().examHistory || [])
               );
             } else {
               // Firestore has key (or neither has key): update local from Firestore
@@ -137,7 +145,9 @@ export function useAuth() {
                   localModelConfig,
                   data.editedWords || useStore.getState().editedWords,
                   data.deletedWordIds || useStore.getState().deletedWordIds,
-                  (Array.isArray(data.aiChatSessions) && data.aiChatSessions.length > 0) ? data.aiChatSessions : localSessions
+                  (Array.isArray(data.aiChatSessions) && data.aiChatSessions.length > 0) ? data.aiChatSessions : localSessions,
+                  data.examSettings || useStore.getState().examSettings,
+                  (Array.isArray(data.examHistory) && data.examHistory.length > 0) ? data.examHistory : (useStore.getState().examHistory || [])
                 );
               }
             }
@@ -151,7 +161,9 @@ export function useAuth() {
               localModelConfig,
               useStore.getState().editedWords,
               useStore.getState().deletedWordIds,
-              localSessions
+              localSessions,
+              useStore.getState().examSettings,
+              useStore.getState().examHistory
             );
           }
           setSyncStatus('synced');

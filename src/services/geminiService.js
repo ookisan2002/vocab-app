@@ -2,6 +2,7 @@
  * Service handling Google Gemini API integration for IELTS AI Tutor
  */
 import { PROJECT_KNOWLEDGE } from '../data/projectKnowledge.js';
+import { DEFAULT_VOCAB } from '../data/defaultVocab.js';
 import {
   containsSensitiveQuery,
   sanitizeAiOutput,
@@ -822,4 +823,386 @@ ${PROJECT_KNOWLEDGE}${wordContext}`;
   }
 
   throw lastQuotaError || last404Error || lastError || new Error('Không tìm thấy model AI phù hợp (404). Vui lòng thử lại với API Key khác.');
+}
+
+// ─────────────────────────────────────────────────────────────
+// IELTS Exam Arena: Generation & Grading Services
+// ─────────────────────────────────────────────────────────────
+
+/**
+ * Resilient JSON extractor for Gemini text output
+ */
+export function extractJsonFromText(rawText) {
+  if (!rawText) return null;
+  let text = rawText.trim();
+  if (text.startsWith('```')) {
+    text = text.replace(/^```[a-zA-Z]*\n?/, '').replace(/```\s*$/, '').trim();
+  }
+  try {
+    return JSON.parse(text);
+  } catch {
+    const firstBracket = text.indexOf('[');
+    const lastBracket = text.lastIndexOf(']');
+    if (firstBracket !== -1 && lastBracket > firstBracket) {
+      try {
+        return JSON.parse(text.slice(firstBracket, lastBracket + 1));
+      } catch {}
+    }
+    const firstBrace = text.indexOf('{');
+    const lastBrace = text.lastIndexOf('}');
+    if (firstBrace !== -1 && lastBrace > firstBrace) {
+      try {
+        return JSON.parse(text.slice(firstBrace, lastBrace + 1));
+      } catch {}
+    }
+  }
+  return null;
+}
+
+/**
+ * Fallback generator for exam questions when offline or API call fails
+ */
+export function generateFallbackExamQuestions(selectedWords, enabledTypes) {
+  if (!Array.isArray(selectedWords) || selectedWords.length === 0) return [];
+  const types = (Array.isArray(enabledTypes) && enabledTypes.length > 0)
+    ? enabledTypes
+    : ['fill_blank', 'reorder', 'translate'];
+
+  const allFallbackWords = (Array.isArray(DEFAULT_VOCAB) && DEFAULT_VOCAB.length > 0)
+    ? DEFAULT_VOCAB.map(w => w.word)
+    : ['crucial', 'imperative', 'ubiquitous', 'sustainable', 'mitigate', 'scrutinize', 'exacerbate'];
+
+  return selectedWords.map((wordObj, idx) => {
+    const qType = types[idx % types.length];
+    const targetWord = wordObj.word || 'word';
+    const vi = wordObj.vi || '';
+    const example = (wordObj.example && wordObj.example.trim())
+      ? wordObj.example.trim()
+      : `The research clearly demonstrates that ${targetWord} plays a pivotal role in modern society.`;
+
+    const qId = `exam_q_${Date.now()}_${idx}_${Math.random().toString(36).substring(2, 6)}`;
+
+    if (qType === 'fill_blank') {
+      const wordRegex = new RegExp(`\\b${targetWord}\\b`, 'gi');
+      let prompt = example.replace(wordRegex, '___');
+      if (!prompt.includes('___')) {
+        prompt = `Scholars have suggested that ___ is an indispensable factor in this context. (Gợi ý: ${vi})`;
+      }
+
+      const pool = allFallbackWords.filter(w => w.toLowerCase() !== targetWord.toLowerCase());
+      const shuffledDistractors = [...pool].sort(() => Math.random() - 0.5).slice(0, 3);
+      const options = [targetWord, ...shuffledDistractors].sort(() => Math.random() - 0.5);
+
+      return {
+        id: qId,
+        type: 'fill_blank',
+        wordId: wordObj.id,
+        targetWord,
+        prompt,
+        options,
+        correctOption: targetWord,
+        explanation: `"${targetWord}" mang nghĩa "${vi}", phù hợp nhất về mặt học thuật và ngữ cảnh của câu.`
+      };
+    }
+
+    if (qType === 'reorder') {
+      let targetSentence = example;
+      if (!targetSentence.toLowerCase().includes(targetWord.toLowerCase())) {
+        targetSentence = `It is imperative to ${targetWord} the primary issues in this field.`;
+      }
+      const rawTokens = targetSentence.split(/\s+/).filter(Boolean);
+      let scrambledTokens = [...rawTokens].sort(() => Math.random() - 0.5);
+      if (scrambledTokens.join(' ') === rawTokens.join(' ') && scrambledTokens.length > 1) {
+        const tmp = scrambledTokens[0];
+        scrambledTokens[0] = scrambledTokens[1];
+        scrambledTokens[1] = tmp;
+      }
+
+      return {
+        id: qId,
+        type: 'reorder',
+        wordId: wordObj.id,
+        targetWord,
+        targetSentence,
+        scrambledTokens,
+        viMeaning: `Sắp xếp các từ để hoàn thiện câu học thuật chứa từ "${targetWord}" (${vi})`
+      };
+    }
+
+    // Default: 'translate'
+    const viPrompt = `Hãy diễn đạt ý sau sang tiếng Anh học thuật IELTS (bắt buộc dùng từ "${targetWord}"): ${vi} là một yếu tố mang tính quyết định trong sự phát triển bền vững.`;
+    return {
+      id: qId,
+      type: 'translate',
+      wordId: wordObj.id,
+      targetWord,
+      viPrompt,
+      targetWordHint: targetWord,
+      suggestedSentence: example
+    };
+  });
+}
+
+/**
+ * Generate high-level IELTS exam questions using Gemini API, with automatic fallback
+ */
+export async function generateExamQuestions(apiKey, selectedWords, enabledTypes) {
+  if (!Array.isArray(selectedWords) || selectedWords.length === 0) {
+    return [];
+  }
+
+  const cleanKey = (apiKey || '').trim();
+  const types = (Array.isArray(enabledTypes) && enabledTypes.length > 0)
+    ? enabledTypes
+    : ['fill_blank', 'reorder', 'translate'];
+
+  if (!cleanKey) {
+    console.info('[GeminiService] No API key provided, generating exam with intelligent fallback.');
+    return generateFallbackExamQuestions(selectedWords, types);
+  }
+
+  // Build specifications for Gemini
+  const promptItems = selectedWords.map((w, idx) => {
+    const qType = types[idx % types.length];
+    return {
+      index: idx + 1,
+      type: qType,
+      wordId: w.id,
+      targetWord: w.word,
+      vi: w.vi,
+      topic: w.topic || 'General',
+      example: w.example || '',
+    };
+  });
+
+  const systemInstructionText = `Bạn là Giám khảo Khảo thí IELTS Học thuật & Chuyên gia Ngôn ngữ Anh (Band 8.5+).
+Nhiệm vụ của bạn là biên soạn một bộ đề thi kiểm tra năng lực từ vựng IELTS dạng JSON thuần túy, tuyệt đối không có văn bản dẫn dắt bên ngoài.
+
+Các dạng câu hỏi cần tạo tương ứng theo danh sách yêu cầu:
+1. 'fill_blank': Tạo 1 câu học thuật IELTS Band 7.5+ có vị trí khuyết là "___", 4 lựa chọn A, B, C, D (gồm từ mục tiêu và 3 từ gây nhiễu cùng trình độ C1/C2), correctOption (từ đúng) và explanation (giải thích ngắn bằng tiếng Việt).
+2. 'reorder': Tạo 1 câu học thuật hoàn chỉnh chứa từ mục tiêu, xáo trộn câu thành mảng scrambledTokens (khoảng 8-12 từ/cụm từ ngắn), và viMeaning (nghĩa tiếng Việt tương ứng của cả câu).
+3. 'translate': Đưa ra 1 câu tiếng Việt mang văn phong học thuật IELTS (viPrompt), yêu cầu học viên dịch sang tiếng Anh bắt buộc dùng từ targetWord, và suggestedSentence (câu dịch tiếng Anh mẫu Band 8.5+).
+
+QUY CÁCH ĐẦU RA:
+Chỉ trả về 1 mảng JSON thuần túy:
+[
+  {
+    "id": "q_1",
+    "type": "fill_blank" | "reorder" | "translate",
+    "wordId": "...",
+    "targetWord": "...",
+    // Các trường tương ứng với từng dạng câu hỏi như mô tả trên
+  }
+]`;
+
+  const userPrompt = `Hãy tạo bộ đề thi IELTS cho danh sách ${selectedWords.length} từ sau:\n${JSON.stringify(promptItems, null, 2)}`;
+
+  const formattedContents = [
+    {
+      role: 'user',
+      parts: [{ text: userPrompt }],
+    },
+  ];
+
+  const activeConfig = getActiveConfig();
+  const candidateQueue = [
+    activeConfig,
+    ...CANDIDATE_CONFIGS.filter(
+      c => c.model !== activeConfig.model || c.apiVersion !== activeConfig.apiVersion
+    ),
+  ];
+
+  for (let i = 0; i < candidateQueue.length; i++) {
+    const { model, apiVersion } = candidateQueue[i];
+    const url = `https://generativelanguage.googleapis.com/${apiVersion}/models/${encodeURIComponent(model)}:generateContent?key=${encodeURIComponent(cleanKey)}`;
+    const payload = buildPayloadForVersion(formattedContents, systemInstructionText, apiVersion);
+
+    try {
+      const response = await fetch(url, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload),
+      });
+
+      if (!response.ok) {
+        console.warn(`[GeminiExam] Model ${model} (${apiVersion}) returned ${response.status}. Trying next...`);
+        continue;
+      }
+
+      const data = await response.json();
+      const rawText = data?.candidates?.[0]?.content?.parts?.[0]?.text || '';
+      const parsed = extractJsonFromText(rawText);
+
+      if (Array.isArray(parsed) && parsed.length > 0) {
+        // Normalize IDs and match wordId
+        return parsed.map((item, idx) => {
+          const originalWord = selectedWords[idx] || selectedWords.find(w => w.word.toLowerCase() === item.targetWord?.toLowerCase());
+          return {
+            ...item,
+            id: item.id || `exam_q_${Date.now()}_${idx}`,
+            wordId: originalWord?.id || item.wordId || `w_${idx}`,
+            targetWord: originalWord?.word || item.targetWord,
+          };
+        });
+      }
+    } catch (err) {
+      console.warn(`[GeminiExam] Error calling model ${model}:`, err.message);
+    }
+  }
+
+  // Gracefully fallback
+  console.warn('[GeminiExam] Gemini calls failed or invalid JSON. Using smart fallback generator.');
+  return generateFallbackExamQuestions(selectedWords, types);
+}
+
+/**
+ * Fallback grading function for translation questions
+ */
+export function gradeFallbackExamTranslations(translationSubmissions) {
+  if (!Array.isArray(translationSubmissions)) return [];
+  return translationSubmissions.map(sub => {
+    const { id, targetWord, studentTranslation, suggestedSentence } = sub;
+    const cleanStudent = (studentTranslation || '').trim().toLowerCase();
+    const cleanTarget = (targetWord || '').trim().toLowerCase();
+
+    if (!cleanStudent) {
+      return {
+        id,
+        score: 0,
+        isPass: false,
+        feedback: 'Bạn chưa nhập câu trả lời cho câu hỏi này.',
+        grammarNotes: 'Vui lòng hoàn thành câu dịch.',
+        betterAlternative: suggestedSentence || 'N/A'
+      };
+    }
+
+    const hasTarget = cleanStudent.includes(cleanTarget);
+    const wordCount = cleanStudent.split(/\s+/).filter(Boolean).length;
+
+    if (hasTarget && wordCount >= 6) {
+      return {
+        id,
+        score: 8.0,
+        isPass: true,
+        feedback: `Tuyệt vời! Bạn đã sử dụng chính xác từ mục tiêu "${targetWord}" với cấu trúc câu học thuật mạch lạc.`,
+        grammarNotes: 'Câu văn có cấu trúc rõ ràng, sử dụng collocation hợp lý.',
+        betterAlternative: suggestedSentence || studentTranslation
+      };
+    }
+
+    if (hasTarget && wordCount < 6) {
+      return {
+        id,
+        score: 6.0,
+        isPass: false,
+        feedback: `Bạn đã dùng được từ "${targetWord}", tuy nhiên câu còn quá ngắn và chưa tạo được ngữ cảnh học thuật chuẩn IELTS.`,
+        grammarNotes: 'Nên mở rộng các mệnh đề phụ hoặc cụm trạng từ để câu tự nhiên hơn.',
+        betterAlternative: suggestedSentence || studentTranslation
+      };
+    }
+
+    return {
+      id,
+      score: 4.5,
+      isPass: false,
+      feedback: `Chưa tìm thấy từ mục tiêu "${targetWord}" trong câu dịch của bạn.`,
+      grammarNotes: `Yêu cầu bắt buộc là phải lồng ghép chính xác từ "${targetWord}".`,
+      betterAlternative: suggestedSentence || studentTranslation
+    };
+  });
+}
+
+/**
+ * Grade translation submissions using Gemini AI (Band 8.5+ evaluator)
+ */
+export async function gradeExamTranslations(apiKey, translationSubmissions) {
+  if (!Array.isArray(translationSubmissions) || translationSubmissions.length === 0) {
+    return [];
+  }
+
+  const cleanKey = (apiKey || '').trim();
+  if (!cleanKey) {
+    return gradeFallbackExamTranslations(translationSubmissions);
+  }
+
+  const systemInstructionText = `Bạn là Giám khảo Chấm thi IELTS Writing & Translation (Band 8.5+).
+Nhiệm vụ của bạn là đánh giá công tâm các câu dịch tiếng Anh của học viên dựa trên câu tiếng Việt gốc và từ vựng mục tiêu bắt buộc.
+
+QUY TẮC CHẤM ĐIỂM (Thang 10 điểm):
+- Từ vựng mục tiêu: Bắt buộc học viên phải dùng đúng từ vựng này (đúng nghĩa, đúng dạng từ hoặc collocation tự nhiên).
+- Ngữ pháp & Văn phong: Chuẩn văn phong học thuật IELTS Writing/Speaking, tránh dịch word-by-word ngô nghê.
+- Đạt (isPass = true): score >= 7.0 (tương đương IELTS Band 7.0+).
+- Chưa đạt (isPass = false): score < 7.0.
+
+QUY CÁCH ĐẦU RA:
+Chỉ trả về 1 mảng JSON thuần túy:
+[
+  {
+    "id": "id của câu hỏi",
+    "score": 8.5,
+    "isPass": true,
+    "feedback": "Nhận xét súc tích 1-2 câu tiếng Việt về ưu điểm và cách dùng từ",
+    "grammarNotes": "Ghi chú ngữ pháp hoặc collocation cần lưu ý",
+    "betterAlternative": "Câu tiếng Anh nâng cấp chuẩn IELTS Band 8.5+"
+  }
+]`;
+
+  const userPrompt = `Hãy chấm các câu dịch sau đây của học viên:\n${JSON.stringify(translationSubmissions, null, 2)}`;
+
+  const formattedContents = [
+    {
+      role: 'user',
+      parts: [{ text: userPrompt }],
+    },
+  ];
+
+  const activeConfig = getActiveConfig();
+  const candidateQueue = [
+    activeConfig,
+    ...CANDIDATE_CONFIGS.filter(
+      c => c.model !== activeConfig.model || c.apiVersion !== activeConfig.apiVersion
+    ),
+  ];
+
+  for (let i = 0; i < candidateQueue.length; i++) {
+    const { model, apiVersion } = candidateQueue[i];
+    const url = `https://generativelanguage.googleapis.com/${apiVersion}/models/${encodeURIComponent(model)}:generateContent?key=${encodeURIComponent(cleanKey)}`;
+    const payload = buildPayloadForVersion(formattedContents, systemInstructionText, apiVersion);
+
+    try {
+      const response = await fetch(url, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload),
+      });
+
+      if (!response.ok) {
+        continue;
+      }
+
+      const data = await response.json();
+      const rawText = data?.candidates?.[0]?.content?.parts?.[0]?.text || '';
+      const parsed = extractJsonFromText(rawText);
+
+      if (Array.isArray(parsed) && parsed.length > 0) {
+        return parsed.map((item, idx) => {
+          const sub = translationSubmissions[idx] || translationSubmissions.find(s => s.id === item.id);
+          const score = typeof item.score === 'number' ? item.score : (item.isPass ? 7.5 : 5.0);
+          return {
+            id: item.id || sub?.id,
+            score,
+            isPass: score >= 7.0,
+            feedback: item.feedback || (score >= 7.0 ? 'Câu dịch tốt và tự nhiên.' : 'Cần cải thiện cách diễn đạt.'),
+            grammarNotes: item.grammarNotes || '',
+            betterAlternative: item.betterAlternative || sub?.suggestedSentence || '',
+          };
+        });
+      }
+    } catch (err) {
+      console.warn(`[GeminiGrade] Error grading with model ${model}:`, err.message);
+    }
+  }
+
+  // Gracefully fallback
+  return gradeFallbackExamTranslations(translationSubmissions);
 }
