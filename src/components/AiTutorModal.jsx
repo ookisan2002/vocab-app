@@ -34,7 +34,6 @@ import {
   MenuUnfoldOutlined,
   MenuFoldOutlined,
 } from '@ant-design/icons';
-import VirtualList from 'rc-virtual-list';
 import { useStore } from '../store/useStore';
 import {
   getStoredApiKey,
@@ -108,27 +107,34 @@ function CodeBlock({ code, language }) {
 
   return (
     <div
+      className="ai-code-block"
       style={{
         margin: '10px 0',
         borderRadius: 8,
         overflow: 'hidden',
         background: '#0d0d17',
         border: '1px solid rgba(255, 255, 255, 0.12)',
+        maxWidth: '100%',
+        boxSizing: 'border-box',
       }}
     >
       <Flex
+        className="ai-code-header"
         justify="space-between"
         align="center"
         style={{
           background: 'rgba(255, 255, 255, 0.05)',
           padding: '4px 12px',
           borderBottom: '1px solid rgba(255, 255, 255, 0.08)',
+          userSelect: 'none',
+          WebkitUserSelect: 'none',
         }}
       >
         <Typography.Text type="secondary" style={{ fontSize: 12, fontFamily: 'monospace' }}>
           {language || 'text'}
         </Typography.Text>
         <Button
+          className="ai-copy-btn"
           type="text"
           size="small"
           icon={copied ? <CheckOutlined style={{ color: '#52c41a' }} /> : <CopyOutlined />}
@@ -138,8 +144,33 @@ function CodeBlock({ code, language }) {
           {copied ? 'Đã chép' : 'Copy'}
         </Button>
       </Flex>
-      <pre style={{ margin: 0, padding: 12, overflowX: 'auto', fontSize: 13, color: '#e2e8f0', fontFamily: 'monospace' }}>
-        <code>{code}</code>
+      <pre
+        style={{
+          margin: 0,
+          padding: 12,
+          overflowX: 'auto',
+          fontSize: 13,
+          color: '#e2e8f0',
+          fontFamily: 'monospace',
+          whiteSpace: 'pre-wrap',
+          wordBreak: 'break-word',
+          overflowWrap: 'break-word',
+          maxWidth: '100%',
+          boxSizing: 'border-box',
+          userSelect: 'text',
+          WebkitUserSelect: 'text',
+        }}
+      >
+        <code
+          style={{
+            whiteSpace: 'pre-wrap',
+            wordBreak: 'break-word',
+            overflowWrap: 'break-word',
+            maxWidth: '100%',
+          }}
+        >
+          {code}
+        </code>
       </pre>
     </div>
   );
@@ -214,7 +245,19 @@ function FormattedMessage({ content }) {
   }
 
   return (
-    <div style={{ fontSize: '0.92rem', color: '#f1f5f9' }}>
+    <div
+      className="ai-formatted-content"
+      style={{
+        fontSize: '0.92rem',
+        color: '#f1f5f9',
+        wordBreak: 'break-word',
+        overflowWrap: 'break-word',
+        minWidth: 0,
+        maxWidth: '100%',
+        userSelect: 'text',
+        WebkitUserSelect: 'text',
+      }}
+    >
       {segments.map((seg, sIdx) => {
         if (seg.type === 'code') {
           return <CodeBlock key={`code-${sIdx}`} code={seg.code} language={seg.language} />;
@@ -256,11 +299,29 @@ export default function AiTutorModal({ currentWord }) {
   const [inputText, setInputText] = useState('');
   const [isSending, setIsSending] = useState(false);
   const [chatError, setChatError] = useState('');
-  const [containerHeight, setContainerHeight] = useState(420);
+  const [isPromptsOpen, setIsPromptsOpen] = useState(true);
 
   const chatContainerRef = useRef(null);
-  const virtualListRef = useRef(null);
+  const chatBottomRef = useRef(null);
   const inputRef = useRef(null);
+
+  // Lock body scroll when modal is open (Scroll Chaining Prevention)
+  useEffect(() => {
+    if (isOpen) {
+      const prevOverflow = document.body.style.overflow;
+      document.body.style.overflow = 'hidden';
+      return () => {
+        document.body.style.overflow = prevOverflow || '';
+      };
+    }
+  }, [isOpen]);
+
+  // Smooth scroll to bottom helper
+  const scrollToBottom = (smooth = true) => {
+    if (chatBottomRef.current) {
+      chatBottomRef.current.scrollIntoView({ behavior: smooth ? 'smooth' : 'auto' });
+    }
+  };
 
   // Extract word details
   const wordText = typeof currentWord === 'string' ? currentWord : currentWord?.word;
@@ -309,40 +370,11 @@ export default function AiTutorModal({ currentWord }) {
     });
   }, [chatSessions, searchText]);
 
-  // Measure dynamic height for rc-virtual-list
-  useEffect(() => {
-    const el = chatContainerRef.current;
-    if (!el) return;
-
-    const updateHeight = () => {
-      if (el.clientHeight > 0) {
-        setContainerHeight(el.clientHeight);
-      }
-    };
-
-    updateHeight();
-
-    const ro = new ResizeObserver(() => {
-      updateHeight();
-    });
-    ro.observe(el);
-
-    return () => {
-      ro.disconnect();
-    };
-  }, [isOpen, isConfiguringKey, isSidebarOpen]);
-
   // Auto-scroll chat to bottom on new message or session switch
   useEffect(() => {
-    if (displayMessages.length > 0 && virtualListRef.current) {
-      const scroll = () => {
-        virtualListRef.current?.scrollTo({
-          index: displayMessages.length - 1,
-          align: 'bottom',
-        });
-      };
-      scroll();
-      const timer = setTimeout(scroll, 80);
+    if (displayMessages.length > 0) {
+      scrollToBottom(true);
+      const timer = setTimeout(() => scrollToBottom(false), 80);
       return () => clearTimeout(timer);
     }
   }, [displayMessages.length, activeSessionId]);
@@ -491,6 +523,48 @@ export default function AiTutorModal({ currentWord }) {
 
       updateActiveSessionMessages(prev => [...prev, assistantMsg]);
     } catch (err) {
+      const errMsg = err?.message || '';
+      const isModelUnavailable =
+        errMsg.includes('404') ||
+        errMsg.toLowerCase().includes('not found') ||
+        errMsg.toLowerCase().includes('không tìm thấy model') ||
+        errMsg.toLowerCase().includes('is not supported for generatecontent') ||
+        errMsg.toLowerCase().includes('model');
+
+      if (isModelUnavailable) {
+        try {
+          console.info('[AiTutorModal] Model không khả dụng, đang tự động dò tìm model mới...');
+          const testRes = await testApiKey(activeKey);
+          if (testRes?.model) {
+            const workingConfig = {
+              model: testRes.model,
+              apiVersion: testRes.apiVersion || 'v1',
+            };
+            setActiveConfig(workingConfig.model, workingConfig.apiVersion);
+            setGeminiModelConfig(workingConfig);
+            setSelectedModel(workingConfig.model);
+
+            const retryReply = await sendChatMessage(activeKey, messagesForAi, currentWord, true);
+            const isSecurityBlocked =
+              retryReply === SECURITY_BLOCKED_MESSAGE ||
+              (typeof retryReply === 'string' && retryReply.startsWith('🛡️'));
+
+            const assistantMsg = {
+              id: (Date.now() + 1).toString(),
+              role: 'assistant',
+              content: retryReply,
+              isSecurityBlocked,
+              timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+            };
+
+            updateActiveSessionMessages(prev => [...prev, assistantMsg]);
+            return;
+          }
+        } catch (reconnectErr) {
+          console.error('[AiTutorModal] Tự động kết nối lại thất bại:', reconnectErr);
+        }
+      }
+
       setChatError(err.message || 'Có lỗi xảy ra khi trò chuyện với AI.');
     } finally {
       setIsSending(false);
@@ -544,19 +618,21 @@ export default function AiTutorModal({ currentWord }) {
     { value: 'gemini-1.5-pro', label: 'Gemini 1.5 Pro (Tư duy & Phân tích chuyên sâu)' },
   ], []);
 
-  // Render individual item in VirtualList
+  // Render individual message item in chat
   const renderMessageItem = (msg) => {
     if (msg.role === 'thinking') {
       return (
-        <div key={msg.id} className="ai-message-row" style={{ padding: '6px 16px' }}>
+        <div key={msg.id} className="ai-message-row" style={{ padding: '6px 16px', width: '100%' }}>
           <Flex justify="flex-start" gap={10} style={{ marginBottom: 10 }}>
-            <Avatar size={32} icon={<RobotOutlined />} style={{ backgroundColor: '#1f1b3c', flexShrink: 0 }} />
+            <Avatar size={32} icon={<RobotOutlined />} style={{ backgroundColor: '#1f1b3c', flexShrink: 0, userSelect: 'none', WebkitUserSelect: 'none' }} />
             <div
               style={{
                 background: 'rgba(255, 255, 255, 0.04)',
                 padding: '10px 16px',
                 borderRadius: '16px 16px 16px 4px',
                 border: '1px solid rgba(255, 255, 255, 0.08)',
+                userSelect: 'none',
+                WebkitUserSelect: 'none',
               }}
             >
               <Space size={8}>
@@ -573,23 +649,28 @@ export default function AiTutorModal({ currentWord }) {
 
     if (msg.role === 'user') {
       return (
-        <div key={msg.id} className="ai-message-row" style={{ padding: '6px 16px' }}>
-          <Flex justify="flex-end" style={{ marginBottom: 8 }}>
+        <div key={msg.id} className="ai-message-row" style={{ padding: '6px 16px', width: '100%' }}>
+          <Flex justify="flex-end" style={{ marginBottom: 8, width: '100%' }}>
             <div
+              className="ai-message-bubble"
               style={{
                 maxWidth: '82%',
+                minWidth: 0,
                 background: '#7c6af7',
                 color: '#ffffff',
                 padding: '10px 14px',
                 borderRadius: '16px 16px 4px 16px',
                 boxShadow: '0 2px 8px rgba(124, 106, 247, 0.25)',
                 wordBreak: 'break-word',
+                overflowWrap: 'anywhere',
+                userSelect: 'text',
+                WebkitUserSelect: 'text',
               }}
             >
-              <Typography.Text style={{ color: '#ffffff', whiteSpace: 'pre-wrap' }}>
+              <Typography.Text style={{ color: '#ffffff', whiteSpace: 'pre-wrap', userSelect: 'text', WebkitUserSelect: 'text' }}>
                 {msg.content}
               </Typography.Text>
-              <div style={{ textAlign: 'right', fontSize: 10, opacity: 0.7, marginTop: 4 }}>
+              <div className="ai-message-time" style={{ textAlign: 'right', fontSize: 10, opacity: 0.7, marginTop: 4, userSelect: 'none', WebkitUserSelect: 'none' }}>
                 {msg.timestamp}
               </div>
             </div>
@@ -604,8 +685,8 @@ export default function AiTutorModal({ currentWord }) {
       (typeof msg.content === 'string' && msg.content.startsWith('🛡️'));
 
     return (
-      <div key={msg.id} className="ai-message-row" style={{ padding: '6px 16px' }}>
-        <Flex justify="flex-start" gap={10} style={{ marginBottom: 12 }}>
+      <div key={msg.id} className="ai-message-row" style={{ padding: '6px 16px', width: '100%' }}>
+        <Flex justify="flex-start" gap={10} style={{ marginBottom: 12, width: '100%', minWidth: 0 }}>
           <Avatar
             size={32}
             icon={isSecurityAlert ? <SafetyCertificateOutlined /> : <RobotOutlined />}
@@ -613,25 +694,32 @@ export default function AiTutorModal({ currentWord }) {
               backgroundColor: isSecurityAlert ? '#ff4d4f' : '#1f1b3c',
               border: '1px solid rgba(255, 255, 255, 0.15)',
               flexShrink: 0,
+              userSelect: 'none',
+              WebkitUserSelect: 'none',
             }}
           />
           <div
+            className="ai-message-bubble"
             style={{
               maxWidth: '85%',
+              minWidth: 0,
               background: isSecurityAlert ? 'rgba(255, 77, 79, 0.08)' : 'rgba(255, 255, 255, 0.04)',
               border: isSecurityAlert ? '1px solid rgba(255, 77, 79, 0.3)' : '1px solid rgba(255, 255, 255, 0.08)',
               padding: '12px 16px',
               borderRadius: '16px 16px 16px 4px',
               wordBreak: 'break-word',
+              overflowWrap: 'anywhere',
+              userSelect: 'text',
+              WebkitUserSelect: 'text',
             }}
           >
             {isSecurityAlert && (
-              <Tag color="error" icon={<SafetyCertificateOutlined />} style={{ marginBottom: 8 }}>
+              <Tag color="error" icon={<SafetyCertificateOutlined />} style={{ marginBottom: 8, userSelect: 'none', WebkitUserSelect: 'none' }}>
                 Lá chắn An toàn & Bảo mật
               </Tag>
             )}
             <FormattedMessage content={msg.content} />
-            <div style={{ fontSize: 10, color: 'rgba(255, 255, 255, 0.45)', marginTop: 6 }}>
+            <div className="ai-message-time" style={{ fontSize: 10, color: 'rgba(255, 255, 255, 0.45)', marginTop: 6, userSelect: 'none', WebkitUserSelect: 'none' }}>
               {msg.timestamp}
             </div>
           </div>
@@ -1033,10 +1121,10 @@ export default function AiTutorModal({ currentWord }) {
                 </Space>
               </div>
 
-              {/* Virtual Messages Container */}
-              <div className="ai-virtual-container" ref={chatContainerRef}>
+              {/* Native Smooth Scroll Messages Container */}
+              <div className="ai-messages-container" ref={chatContainerRef}>
                 {displayMessages.length === 0 ? (
-                  <div style={{ textAlign: 'center', padding: '36px 16px', height: '100%', overflowY: 'auto' }}>
+                  <div style={{ textAlign: 'center', padding: '36px 16px', margin: 'auto' }}>
                     <Avatar size={54} icon={<RobotOutlined />} style={{ backgroundColor: '#7c6af7', marginBottom: 16 }} />
                     <Typography.Title level={4} style={{ margin: '0 0 8px 0', color: '#f1f5f9' }}>
                       Chào mừng bạn đến với IELTS AI Tutor!
@@ -1049,16 +1137,10 @@ export default function AiTutorModal({ currentWord }) {
                     </Tag>
                   </div>
                 ) : (
-                  <VirtualList
-                    ref={virtualListRef}
-                    data={displayMessages}
-                    height={containerHeight}
-                    itemHeight={80}
-                    itemKey="id"
-                    style={{ overflowX: 'hidden' }}
-                  >
-                    {(msg) => renderMessageItem(msg)}
-                  </VirtualList>
+                  <>
+                    {displayMessages.map(msg => renderMessageItem(msg))}
+                    <div ref={chatBottomRef} style={{ height: 1 }} />
+                  </>
                 )}
               </div>
 
@@ -1073,63 +1155,78 @@ export default function AiTutorModal({ currentWord }) {
                       Thử lại
                     </Button>
                   }
-                  style={{ margin: '8px 14px' }}
+                  style={{ margin: '8px 14px', flexShrink: 0 }}
                 />
               )}
 
               {/* Quick Prompts Suggestions */}
               <div
                 style={{
-                  padding: '8px 16px',
+                  padding: '6px 16px 8px',
                   borderTop: '1px solid rgba(255, 255, 255, 0.06)',
                   background: 'rgba(0, 0, 0, 0.15)',
+                  flexShrink: 0,
+                  userSelect: 'none',
+                  WebkitUserSelect: 'none',
                 }}
               >
-                <Typography.Text type="secondary" style={{ fontSize: 11, display: 'block', marginBottom: 4 }}>
-                  💡 Gợi ý hỏi nhanh:
-                </Typography.Text>
-                <Space wrap size={[6, 6]}>
+                <Flex justify="space-between" align="center" style={{ marginBottom: isPromptsOpen ? 6 : 0 }}>
+                  <Typography.Text type="secondary" style={{ fontSize: 11, display: 'inline-flex', alignItems: 'center', gap: 4 }}>
+                    💡 Gợi ý hỏi nhanh:
+                  </Typography.Text>
                   <Button
-                    type="dashed"
+                    type="text"
                     size="small"
-                    onClick={() => handleQuickPrompt('format_words')}
-                    disabled={isSending}
+                    onClick={() => setIsPromptsOpen(!isPromptsOpen)}
+                    style={{ fontSize: 11, padding: '0 6px', height: 20, color: 'rgba(255, 255, 255, 0.45)' }}
                   >
-                    📋 5 từ chuẩn format
+                    {isPromptsOpen ? 'Thu gọn ▲' : 'Mở rộng ▼'}
                   </Button>
-                  <Button
-                    type="dashed"
-                    size="small"
-                    onClick={() => handleQuickPrompt('guide')}
-                    disabled={isSending}
-                  >
-                    ❓ Hướng dẫn sử dụng app
-                  </Button>
-                  <Button
-                    type="dashed"
-                    size="small"
-                    onClick={() => handleQuickPrompt('explain')}
-                    disabled={isSending}
-                  >
-                    💡 Phân tích từ đang xem Band 7+
-                  </Button>
-                  <Button
-                    type="dashed"
-                    size="small"
-                    onClick={() => handleQuickPrompt('writing')}
-                    disabled={isSending}
-                  >
-                    📝 Viết Task 2 với từ này
-                  </Button>
-                  <Button
-                    type="dashed"
-                    size="small"
-                    onClick={() => handleQuickPrompt('quiz')}
-                    disabled={isSending}
-                  >
-                    🎯 Đố tôi câu hỏi trắc nghiệm
-                  </Button>
-                </Space>
+                </Flex>
+                {isPromptsOpen && (
+                  <Space wrap size={[6, 6]}>
+                    <Button
+                      type="dashed"
+                      size="small"
+                      onClick={() => handleQuickPrompt('format_words')}
+                      disabled={isSending}
+                    >
+                      📋 5 từ chuẩn format
+                    </Button>
+                    <Button
+                      type="dashed"
+                      size="small"
+                      onClick={() => handleQuickPrompt('guide')}
+                      disabled={isSending}
+                    >
+                      ❓ Hướng dẫn sử dụng app
+                    </Button>
+                    <Button
+                      type="dashed"
+                      size="small"
+                      onClick={() => handleQuickPrompt('explain')}
+                      disabled={isSending}
+                    >
+                      💡 Phân tích từ đang xem Band 7+
+                    </Button>
+                    <Button
+                      type="dashed"
+                      size="small"
+                      onClick={() => handleQuickPrompt('writing')}
+                      disabled={isSending}
+                    >
+                      📝 Viết Task 2 với từ này
+                    </Button>
+                    <Button
+                      type="dashed"
+                      size="small"
+                      onClick={() => handleQuickPrompt('quiz')}
+                      disabled={isSending}
+                    >
+                      🎯 Đố tôi câu hỏi trắc nghiệm
+                    </Button>
+                  </Space>
+                )}
               </div>
 
               {/* Chat Input Bar */}
@@ -1138,6 +1235,7 @@ export default function AiTutorModal({ currentWord }) {
                   padding: '12px 16px',
                   borderTop: '1px solid rgba(255, 255, 255, 0.08)',
                   background: '#16142a',
+                  flexShrink: 0,
                 }}
               >
                 <Flex gap={8} align="flex-end">

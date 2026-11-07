@@ -2056,16 +2056,75 @@ body {
   justify-content: space-between;
 }
 
-.ai-virtual-container {
-  flex: 1;
-  min-height: 0;
-  overflow: hidden;
-  position: relative;
+/* Scroll Chaining Prevention & Containment */
+.ai-modal-layout,
+.ai-messages-container,
+.ai-chat-main,
+.ant-modal-wrap,
+.ai-sidebar-list {
+  overscroll-behavior: contain;
+  overscroll-behavior-y: contain;
 }
 
-.ai-virtual-container .rc-virtual-list-holder {
+/* Native Smooth Scroll Messages Container */
+.ai-messages-container {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  overflow-x: hidden;
+  -webkit-overflow-scrolling: touch;
+  overscroll-behavior-y: contain;
+  overscroll-behavior: contain;
+  touch-action: pan-y;
+  padding: 16px 16px 28px 16px;
   scrollbar-width: thin;
   scrollbar-color: rgba(255, 255, 255, 0.15) transparent;
+  box-sizing: border-box;
+}
+
+.ai-messages-container::-webkit-scrollbar {
+  width: 5px;
+}
+
+.ai-messages-container::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.ai-messages-container::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, 0.15);
+  border-radius: 10px;
+}
+
+.ai-messages-container::-webkit-scrollbar-thumb:hover {
+  background: rgba(124, 106, 247, 0.45);
+}
+
+/* iPad Selection & Touch UX */
+.ai-message-bubble,
+.ai-formatted-content,
+.ai-inline-code,
+.ai-code-content,
+.ai-code-block pre,
+.ai-code-block code {
+  user-select: text;
+  -webkit-user-select: text;
+}
+
+.ai-sidebar,
+.ai-sidebar-header,
+.ai-sidebar-list,
+.ai-chat-header,
+.ai-bubble-avatar,
+.ai-message-time,
+.ai-quick-prompts,
+.ai-quick-buttons,
+.ai-chip-btn,
+.ai-code-header,
+.ai-copy-btn,
+.ai-message-row .ant-avatar,
+.ai-message-row .ant-tag {
+  user-select: none;
+  -webkit-user-select: none;
 }
 
 .ai-message-row {

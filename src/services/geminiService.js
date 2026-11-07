@@ -598,7 +598,7 @@ export async function testApiKey(apiKey) {
  * Send chat conversation to Gemini API with IELTS tutor system prompt and current word context.
  * Automatically tries active config first, and gracefully falls back to candidate configs if 404 is encountered.
  */
-export async function sendChatMessage(apiKey, messages, currentWord) {
+export async function sendChatMessage(apiKey, messages, currentWord, isRetry = false) {
   if (!apiKey || !apiKey.trim()) {
     throw new Error('Chưa cấu hình API Key. Vui lòng cài đặt API Key.');
   }
@@ -790,7 +790,34 @@ ${PROJECT_KNOWLEDGE}${wordContext}`;
       if (i < candidateQueue.length - 1) {
         continue;
       }
-      throw lastQuotaError || last404Error || lastError;
+      continue;
+    }
+  }
+
+  // If all candidate configs failed (due to 404 / model not found / unsupported generateContent),
+  // automatically run testApiKey to dynamically discover an available model from Google API
+  if (!isRetry) {
+    const isModelError =
+      Boolean(last404Error) ||
+      (lastError?.message && (
+        lastError.message.includes('404') ||
+        lastError.message.toLowerCase().includes('not found') ||
+        lastError.message.toLowerCase().includes('is not supported for generatecontent') ||
+        lastError.message.toLowerCase().includes('model')
+      ));
+
+    if (isModelError) {
+      console.warn('[GeminiService] Tất cả candidates đều thất bại (404/not found). Đang tự động dò tìm model khả dụng qua testApiKey...');
+      try {
+        const discovered = await testApiKey(cleanKey);
+        if (discovered?.model) {
+          console.info(`[GeminiService] Tự động tìm thấy model khả dụng: ${discovered.model} (${discovered.apiVersion || 'v1'}). Đang gửi lại tin nhắn...`);
+          setActiveConfig(discovered.model, discovered.apiVersion || 'v1');
+          return await sendChatMessage(apiKey, messages, currentWord, true);
+        }
+      } catch (discoveryErr) {
+        console.warn('[GeminiService] Tự động dò tìm model qua testApiKey thất bại:', discoveryErr);
+      }
     }
   }
 
